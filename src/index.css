@@ -1,0 +1,267 @@
+/* Fuentes cargadas vía <link> en index.html (mejor prioridad de red) */
+@import "tailwindcss";
+
+@theme {
+  /*
+   * Tipografía según manual de identidad Plaza Árbol de la Vida:
+   * - Display: TAN MON CHERI (comercial). Se usa Italiana como
+   *   equivalente libre de alto contraste; si se licencia la original,
+   *   basta con declararla primero en esta pila.
+   * - Secundaria: Red Hat Display (oficial del manual).
+   * - Serif italic: acento editorial para citas y contrapesos.
+   */
+  --font-display: "TAN Mon Cheri", "Italiana", serif;
+  --font-serif: "Cormorant Garamond", serif;
+  --font-body: "Red Hat Display", sans-serif;
+
+  /* Paleta oficial del manual + derivados de profundidad */
+  --color-ink: #14181e;      /* fondo profundo (derivado del principal) */
+  --color-carbon: #20252d;   /* #20252D — color principal de la identidad */
+  --color-graphite: #2a313b; /* elevación / hover sobre carbón */
+  --color-piedra: #8f8989;   /* gris cálido de transición */
+  --color-claro: #dbdbdb;    /* gris claro de descanso visual */
+  --color-niebla: #ececec;   /* fondo claro de apoyo */
+  --color-blanco: #fafaf8;   /* blanco cálido */
+  --color-plata: #c6cbd3;    /* acento metálico frío (detalles, líneas) */
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-body);
+  background: var(--color-ink);
+  color: var(--color-blanco);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
+}
+
+::selection {
+  background: var(--color-carbon);
+  color: var(--color-blanco);
+}
+
+/* La display se compone en altas, como en el manual de marca */
+.font-display {
+  font-family: var(--font-display);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+.font-serif { font-family: var(--font-serif); }
+
+.text-balance { text-wrap: balance; }
+
+/*
+ * Paneles sobre el árbol 3D fijo.
+ * En móvil (<768px) son casi sólidos → legibilidad garantizada y cero costo
+ * de composición sobre el canvas. En tablet/escritorio se vuelven vidrio
+ * esmerilado translúcido para dejar ver el árbol "tenue detrás" (look premium).
+ */
+.panel-light {
+  background-color: color-mix(in srgb, var(--color-niebla) 94%, transparent);
+}
+.panel-white {
+  background-color: color-mix(in srgb, var(--color-blanco) 95%, transparent);
+}
+.panel-dark {
+  background-color: color-mix(in srgb, var(--color-ink) 62%, transparent);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+@media (min-width: 768px) {
+  .panel-light {
+    background-color: color-mix(in srgb, var(--color-niebla) 74%, transparent);
+    backdrop-filter: blur(28px) saturate(1.06);
+    -webkit-backdrop-filter: blur(28px) saturate(1.06);
+  }
+  .panel-white {
+    background-color: color-mix(in srgb, var(--color-blanco) 76%, transparent);
+    backdrop-filter: blur(30px) saturate(1.06);
+    -webkit-backdrop-filter: blur(30px) saturate(1.06);
+  }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .panel-light { background-color: var(--color-niebla); backdrop-filter: none; -webkit-backdrop-filter: none; }
+  .panel-white { background-color: var(--color-blanco); backdrop-filter: none; -webkit-backdrop-filter: none; }
+  .panel-dark { background-color: var(--color-ink); backdrop-filter: none; -webkit-backdrop-filter: none; }
+}
+
+/* Protección de legibilidad para texto claro sobre el árbol 3D */
+.text-protect {
+  text-shadow: 0 2px 30px rgba(15, 18, 23, 0.7), 0 1px 4px rgba(15, 18, 23, 0.5);
+}
+
+/*
+ * Botones "liquid glass" (estilo Apple): vidrio translúcido con desenfoque,
+ * saturación del fondo, borde luminoso, brillo especular interno y realce
+ * inferior. `.btn-liquid` para fondos oscuros/el árbol (texto claro);
+ * `.btn-liquid-solid` para fondos claros (relleno carbón, texto claro legible).
+ */
+.btn-liquid,
+.btn-liquid-solid {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  color: var(--color-blanco);
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  backdrop-filter: blur(16px) saturate(1.8);
+  -webkit-backdrop-filter: blur(16px) saturate(1.8);
+  box-shadow:
+    inset 0 1px 0.5px rgba(255, 255, 255, 0.55),
+    inset 0 -10px 20px -12px rgba(255, 255, 255, 0.16),
+    0 12px 32px -14px rgba(0, 0, 0, 0.6);
+  transition:
+    transform 0.35s cubic-bezier(0.16, 1, 0.3, 1),
+    background-color 0.35s ease,
+    box-shadow 0.35s ease,
+    border-color 0.35s ease;
+}
+.btn-liquid { background-color: rgba(255, 255, 255, 0.14); }
+.btn-liquid-solid {
+  background-color: rgba(32, 37, 45, 0.72);
+  border-color: rgba(255, 255, 255, 0.16);
+}
+/* Barrido especular diagonal (bajo el texto, sobre el relleno) */
+.btn-liquid::before,
+.btn-liquid-solid::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: linear-gradient(
+    130deg,
+    rgba(255, 255, 255, 0.42) 0%,
+    rgba(255, 255, 255, 0.06) 34%,
+    transparent 60%
+  );
+}
+.btn-liquid:hover {
+  background-color: rgba(255, 255, 255, 0.22);
+  transform: translateY(-1px) scale(1.02);
+}
+.btn-liquid-solid:hover {
+  background-color: rgba(32, 37, 45, 0.82);
+  transform: translateY(-1px) scale(1.02);
+}
+.btn-liquid:active,
+.btn-liquid-solid:active { transform: translateY(0) scale(0.99); }
+.btn-liquid:focus-visible,
+.btn-liquid-solid:focus-visible {
+  outline: 2px solid var(--color-plata);
+  outline-offset: 2px;
+}
+/* Degradación elegante donde no hay soporte de backdrop o se pide opacidad */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .btn-liquid { background-color: rgba(30, 35, 42, 0.9); }
+  .btn-liquid-solid { background-color: var(--color-carbon); }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .btn-liquid {
+    background-color: rgba(30, 35, 42, 0.92);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+  .btn-liquid-solid {
+    background-color: var(--color-carbon);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}
+
+/* Lenis smooth scroll — mientras está activo, el scroll nativo cede el paso */
+html.lenis,
+html.lenis body {
+  height: auto;
+}
+.lenis.lenis-smooth {
+  scroll-behavior: auto !important;
+}
+.lenis.lenis-smooth [data-lenis-prevent] {
+  overscroll-behavior: contain;
+}
+.lenis.lenis-stopped {
+  overflow: hidden;
+}
+
+/* Cursor personalizado: se oculta el nativo solo cuando el custom está activo */
+@media (pointer: fine) {
+  .has-custom-cursor,
+  .has-custom-cursor a,
+  .has-custom-cursor button,
+  .has-custom-cursor [role='button'],
+  .has-custom-cursor input,
+  .has-custom-cursor label,
+  .has-custom-cursor select,
+  .has-custom-cursor textarea {
+    cursor: none !important;
+  }
+}
+
+/*
+ * Tarjetas con tilt 3D: el transform lo escribe JS al mover el mouse; esta
+ * transición corta actúa como amortiguador (lerp barato) y devuelve la
+ * tarjeta a su sitio al salir el cursor.
+ */
+.tilt-card {
+  transform-style: preserve-3d;
+  will-change: transform;
+  transition:
+    transform 0.25s ease-out,
+    box-shadow 0.5s ease,
+    border-color 0.5s ease;
+}
+
+/* Línea divisoria metálica */
+.rule-metal {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--color-piedra), transparent);
+}
+
+/* Marquee de inquilinos */
+.marquee-track {
+  animation: marquee 55s linear infinite;
+}
+.marquee-track:hover {
+  animation-play-state: paused;
+}
+@keyframes marquee {
+  to { transform: translateX(-50%); }
+}
+
+/* Ocultar scrollbar del carrusel manteniendo el scroll */
+.scrollbar-none {
+  scrollbar-width: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+
+/* Anillo pulsante del botón de WhatsApp */
+.wa-pulse::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  background: #25d366;
+  animation: wa-ping 2.6s ease-out infinite;
+  z-index: -1;
+}
+@keyframes wa-ping {
+  0% { transform: scale(1); opacity: 0.55; }
+  100% { transform: scale(1.9); opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+  .marquee-track { animation: none; }
+  .wa-pulse::before { display: none; }
+}

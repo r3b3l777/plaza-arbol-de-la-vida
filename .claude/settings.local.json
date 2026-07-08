@@ -1,0 +1,43 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install *)",
+      "Bash(npm run *)",
+      "Bash(sips -g pixelWidth -g pixelHeight /Users/ray/plaza-arbol-de-la-vida/public/img/hd/*.jpg)",
+      "mcp__e81c7034-3749-426d-9f54-4150f576e7c0__balance",
+      "Bash(sips -g pixelWidth -g pixelHeight /Users/ray/plaza-arbol-de-la-vida/public/img/estacionamiento-al-atardecer.jpg /Users/ray/plaza-arbol-de-la-vida/public/img/plaza-arbol-de-la-vida-al-atardecer.jpg)",
+      "mcp__e81c7034-3749-426d-9f54-4150f576e7c0__generate_image",
+      "mcp__e81c7034-3749-426d-9f54-4150f576e7c0__generate_video",
+      "Bash(sips -g pixelWidth -g pixelHeight /Users/ray/plaza-arbol-de-la-vida/public/img/pasillo-interior-de-la-plaza.jpg /Users/ray/plaza-arbol-de-la-vida/public/img/entrada-y-jardines-de-la-plaza.jpg /Users/ray/plaza-arbol-de-la-vida/public/img/fachada-de-plaza-arbol-de-la-vida.jpg)",
+      "mcp__e81c7034-3749-426d-9f54-4150f576e7c0__job_display",
+      "Bash(curl -sL \"https://d8j0ntlcm91z4.cloudfront.net/user_3GCGfKxFWzIUz01ievPYiGZftac/hf_20260708_002846_a4eaa010-33ea-4b2f-af77-2726ca090f3c.png\" -o public/img/textura-metal-liquido.png)",
+      "Bash(curl -sL \"https://d8j0ntlcm91z4.cloudfront.net/user_3GCGfKxFWzIUz01ievPYiGZftac/hf_20260708_002852_2c93c5aa-e7bb-4b9f-a88f-877561a70cb8.png\" -o public/img/arbol-de-la-vida-escultura.png)",
+      "Bash(sips -s format jpeg -s formatOptions 82 public/img/textura-metal-liquido.png --out public/img/textura-metal-liquido.jpg)",
+      "Bash(sips -s format jpeg -s formatOptions 82 public/img/arbol-de-la-vida-escultura.png --out public/img/arbol-de-la-vida-escultura.jpg)",
+      "Bash(find /Users/ray/plaza-arbol-de-la-vida ~/Desktop ~/Downloads ~/Documents -maxdepth 3 -iname '*.pdf' 2>/dev/null | head -20)",
+      "mcp__e81c7034-3749-426d-9f54-4150f576e7c0__generate_3d",
+      "Bash(python3 -)",
+      "Bash(python3 -c \"import Quartz; print\\('quartz ok'\\)\")",
+      "Bash(pdftoppm -f 6 -l 6 -r 300 -png plaza.pdf logopage)",
+      "Bash(pdftoppm -f 6 -l 6 -r 600 -png -x 2830 -y 480 -W 780 -H 820 plaza.pdf logo-tree)",
+      "Bash(sips -g pixelWidth -g pixelHeight logo-tree-06.png)",
+      "mcp__e81c7034-3749-426d-9f54-4150f576e7c0__media_upload",
+      "Bash(curl -s -X PUT -H \"Content-Type: image/png\" --data-binary @logo-tree-06.png 'https://upload.higgsfield.ai/user_3GCGfKxFWzIUz01ievPYiGZftac/642bc82d-9301-4acd-becd-7a5a7f58b9db.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAYPNTVMCG4IJ2BCYY%2F20260708%2Feu-north-1%2Fs3%2Faws4_request&X-Amz-Date=20260708T031849Z&X-Amz-Expires=86400&X-Amz-SignedHeaders=content-type%3Bhost&X-Amz-Security-Token=IQoJb3JpZ2luX2VjELD%2F%2F%2F%2F%2F%2F%2F%2F%2F%2FwEaCmV1LW5vcnRoLTEiRzBFAiEAqOXT8O8YhMl8sGPuRCGSBt69RB4e0L62xWN26pFNLGoCIHPJYr0fQ8Tp1cA2J4cc4a3vGnIAAgckBuL%2BOmOkcUwOKqcFCHkQABoMNTgyODgxNzMwNzAxIgwetP%2BKbl4%2FFTDFnZYqhAXvRjONuv9%2FPw%2By9H0jPfMlJWeTW0FSFOWwGfGpyY4QXN0teAGXbspZHmMKQ3Oj%2Fo%2FHmu%2BbZmmC4cPnAI%2BktUZ%2F8s9Dq%2FRNT6Q0pFnfaVDMzB8fU8S%2FR6790zGRI8w9dK1EFwAuWtMAGXT%2F0Xw%2BELPeh6FEXtZVmWlai%2F%2FmYUmGNno38oaevzzZ774XOG9XrLH%2FSZMSbm8fBCljibCMhc5f8wUxLYSUQ5xebvO0jlxdwYDVW1VIIiUz%2FAT12OK5PGtBuoVXukHBy1u4NiK9CsBJaOaTYpUYUIvLQF2%2BAPzke64cIAxZaCkHgz6gRb4C0noeZQ9e5eLZkqpOTlFoKwjYwwKPPfbVqcCjIn4cCSvTqjd%2Fzkf05e8vc9I%2F%2FJMhbrNjXKZxzCL8%2FIOsY4R1buDhIsZg6YlHYF1vrmBImev86d6%2FfT3ZYF8UmzRxYT7nbMeVhHWPOvGSeoo42MYVSXCvNIQs07BL8Iy5bzjyuS3eUBNu3D5eMY%2FQ4ucQa8Xa7A9I2Z8KOBkOzFGZpGe7znTO29DMmAxzfgXUOfIL%2BD9FsZfMsb5omxH2A5aGAg0rH0frHbeaiets2Lsn8UOnxwmR%2BaEWznXBIwREuOcofOu2cIPdLz4VeiX3UteaUdxi8ejfDGfNykO4vQgrPTz%2FM8QT5byMeYmI9wzrdqZ1MObB7s%2Bnxdxd19eULO3CrjWv%2BeN9mU26WKs5GZoO%2BdtX4hYbJYeHdAk6DYsGKF%2FAq688je2Kk7Q2Dn0lma9oH4AlRScabyKFakKVmKdRHLhOHkV3%2Bs0WxlSBGyVBJ%2Fn7cWC915BTg8D%2FlgLMoV33RZEpWqz0dPW34tyYu%2F2ImvzAK4jkTqfMojDMoLbSBjqQAaYfYQfjPb8muZnII4xvNAuTLZIxiyZWgDkTV4oL3sZD77vC1Poz1LcULwMXa59J7v0aUr9AxtECa6jAfNTs8Oi7S8NFAhYl8wHirc6vQ48q9b9f8o9CF%2BOQcYnV9rshSGU9BSoaaLnocbyWaUR%2BM2vPXh8xOghh%2Bjv5JFEjfr8G7Cf5Aja0BcHI%2BAxNaC1FFw%3D%3D&X-Amz-Signature=9284034db4431326d668cdf7f6e151f8089962f3a62c24de96bf6faf36901ac4' -w '%{http_code}')",
+      "mcp__e81c7034-3749-426d-9f54-4150f576e7c0__media_confirm",
+      "mcp__e81c7034-3749-426d-9f54-4150f576e7c0__models_explore",
+      "Bash(curl -sL \"https://d3u0tzju9qaucj.cloudfront.net/7d051b5a-7bfe-49fe-a484-24e7b3a9458a/bde81451-6ce5-43a9-a8d1-d85c9178aae6.glb\" -o public/models/arbol-logo.glb)",
+      "Bash(curl -sL \"https://d8j0ntlcm91z4.cloudfront.net/user_3GCGfKxFWzIUz01ievPYiGZftac/hf_20260708_032647_339b25ec-20d8-40ff-ba2e-680c2176b34c.mp4\" -o public/video/textura-metal.mp4)",
+      "Bash(python3 \"/Users/ray/.claude/plugins/cache/ui-ux-pro-max-skill/ui-ux-pro-max/2.6.2/.claude/skills/ui-ux-pro-max/scripts/search.py\" \"luxury shopping plaza lifestyle premium elegant dark landing\" --design-system -p \"Plaza Arbol de la Vida\")",
+      "Bash(kill %1)",
+      "Bash(pkill -f \"vite\")",
+      "Bash(ipconfig getifaddr *)",
+      "Bash(npx --yes localtunnel --version)",
+      "Bash(npx --yes localtunnel --port 5173)",
+      "Bash(curl -s https://loca.lt/mytunnelpassword)",
+      "Bash(pkill -f \"vite --host\")",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" -H \"Bypass-Tunnel-Reminder: true\" https://quiet-moose-stick.loca.lt/)",
+      "Bash(pkill -f \"localtunnel\")",
+      "Bash(pkill -f \"vite$\")"
+    ]
+  }
+}
