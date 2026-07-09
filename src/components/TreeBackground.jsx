@@ -1,8 +1,7 @@
-import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
+import { Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
-import { ContactShadows, Environment, Float, Sparkles, useGLTF } from '@react-three/drei'
+import { Environment, Float, Sparkles } from '@react-three/drei'
 import * as THREE from 'three'
-import { TREE_MODEL } from '../data/site'
 
 /**
  * Árbol de la Vida como telón fijo detrás de toda la página. Es un árbol LARGO:
@@ -57,9 +56,7 @@ function taperedTube(curve, r0, r1, steps, radial, acc) {
   }
 }
 
-// `radial` = segmentos radiales de los tubos: más en escritorio (suavidad),
-// menos en móvil (rendimiento). La silueta del árbol no cambia.
-function buildTree(radial = 12) {
+function buildTree() {
   const rnd = mulberry32(20252)
   const branches = [] // { curve, r0, r1, steps }
   const leaves = []   // { pos, quat, r }
@@ -157,7 +154,7 @@ function buildTree(radial = 12) {
   // animarlas brotando de forma escalonada y orgánica al final del recorrido.
   const merge = (list) => {
     const acc = { positions: [], normals: [], indices: [] }
-    list.forEach((b) => taperedTube(b.curve, b.r0, b.r1, b.steps, radial, acc))
+    list.forEach((b) => taperedTube(b.curve, b.r0, b.r1, b.steps, 12, acc))
     const g = new THREE.BufferGeometry()
     g.setAttribute('position', new THREE.Float32BufferAttribute(acc.positions, 3))
     g.setAttribute('normal', new THREE.Float32BufferAttribute(acc.normals, 3))
@@ -165,25 +162,69 @@ function buildTree(radial = 12) {
     return g
   }
 
+  // Un SISTEMA de raíz estilo Árbol de la Vida: una raíz principal larga que
+  // sale en abanico, ondula y CAE, y de la que brotan raicillas más finas que
+  // también ondulan y se ramifican — como en la referencia. Todo el sistema
+  // se fusiona en una geometría para brotar como una sola unidad.
+  const rootSystem = (az) => {
+    const segs = []
+    // Dirección de salida en el plano (Z comprimido → abanico elíptico)
+    const dir = new THREE.Vector3(Math.cos(az), 0, Math.sin(az) * 0.72)
+    const perp = new THREE.Vector3(-dir.z, 0, dir.x).normalize()
+
+    // Cadena de puntos ondulada y tapering; `up` sesga la caída (raíz madre
+    // baja mucho; raicillas menos). Devuelve la curva CatmullRom.
+    const strand = (origin, baseDir, reach, drop, waveAmp, freq, n) => {
+      const pts = [origin.clone()]
+      const p2 = new THREE.Vector3(-baseDir.z, 0, baseDir.x).normalize()
+      const sign = rnd() > 0.5 ? 1 : -1
+      for (let i = 1; i <= n; i++) {
+        const t = i / n
+        const w = Math.sin(t * Math.PI * freq) * waveAmp * (0.3 + t) * sign
+        const p = origin
+          .clone()
+          .addScaledVector(baseDir, reach * t)
+          .addScaledVector(p2, w)
+        p.y = origin.y - drop * (0.25 * t + 0.75 * t * t) // cae acelerando
+        pts.push(p)
+      }
+      return new THREE.CatmullRomCurve3(pts)
+    }
+
+    // Raíz madre — NACE DENTRO DEL TRONCO: origen alto (0.5–1.15 sobre la base,
+    // radio de la base ≈ 0.44) y gruesa, para que el tronco se abra en raíces
+    // de forma continua (contrafuertes), no que aparezcan flotando debajo.
+    const originY = 0.5 + rnd() * 0.65
+    const reach = 1.5 + rnd() * 1.0
+    const drop = 1.2 + rnd() * 0.8
+    const main = strand(new THREE.Vector3(0, originY, 0), dir, reach, drop, 0.16 + rnd() * 0.12, 1.3 + rnd() * 0.8, 7)
+    segs.push({ curve: main, r0: 0.26 + rnd() * 0.08, r1: 0.02, steps: 30 })
+
+    // Raicillas: brotan de puntos intermedios de la madre, más finas
+    const nChild = 2 + Math.floor(rnd() * 3)
+    for (let c = 0; c < nChild; c++) {
+      const ts = 0.32 + rnd() * 0.5
+      const base = main.getPoint(ts)
+      const caz = az + (rnd() - 0.5) * 1.1
+      const cdir = new THREE.Vector3(Math.cos(caz), 0, Math.sin(caz) * 0.72)
+        .addScaledVector(perp, (rnd() - 0.5) * 0.4)
+        .normalize()
+      const creach = (0.55 + rnd() * 0.8) * (1 - ts * 0.5)
+      const cdrop = (0.4 + rnd() * 0.5) * (1 - ts * 0.4)
+      const child = strand(base, cdir, creach, cdrop, 0.1 + rnd() * 0.1, 1.6 + rnd(), 5)
+      segs.push({ curve: child, r0: 0.055 + rnd() * 0.02, r1: 0.01, steps: 18 })
+    }
+    return segs
+  }
+
   const roots = []
-  for (let i = 0; i < 7; i++) {
-    const a = (i / 7) * Math.PI * 2 + 0.4
-    const dirOut = new THREE.Vector3(Math.cos(a), -0.42, Math.sin(a) * 0.7).normalize()
-    const reach = 0.75 + rnd() * 0.45
-    const geo = merge([
-      {
-        curve: new THREE.QuadraticBezierCurve3(
-          new THREE.Vector3(0, 0, 0),
-          new THREE.Vector3(dirOut.x * 0.42, -0.24 - rnd() * 0.06, dirOut.z * 0.42),
-          new THREE.Vector3(dirOut.x * reach, -0.42, dirOut.z * reach)
-        ),
-        r0: 0.17,
-        r1: 0.028,
-        steps: 10,
-      },
-    ])
+  const NROOTS = 11
+  for (let i = 0; i < NROOTS; i++) {
+    // Reparto angular con jitter → abanico natural, no simétrico
+    const az = (i / NROOTS) * Math.PI * 2 + (rnd() - 0.5) * 0.4
+    const geo = merge(rootSystem(az))
     // Orden de brote aleatorio pero determinista → naturaleza, no reloj
-    roots.push({ geo, delay: rnd() * 0.45 })
+    roots.push({ geo, delay: rnd() * 0.5 })
   }
 
   const wood = merge(branches)
@@ -198,76 +239,48 @@ function journeyEase(x) {
   return 0.2 * x + 0.8 * x * x
 }
 
-// Altura del árbol del logo en unidades de escena: ALTO, para que el
-// descenso copa→raíces dure toda la página (recorrido cinematográfico)
-const LOGO_TREE_H = 12
-useGLTF.preload(TREE_MODEL)
-
-function Tree({ reducedMotion, isMobile }) {
+function Tree({ reducedMotion }) {
   const group = useRef()
   const { viewport, camera } = useThree()
-  // Solo se usan las raíces procedurales (brotan al final); el árbol es el
-  // modelo 3D generado con Higgsfield a partir del logotipo oficial.
-  const { wood, roots } = useMemo(() => buildTree(isMobile ? 10 : 16), [isMobile])
-  // Base del árbol cerca del origen para quedar dentro del set de luces
-  // (spot y puntuales rodean y≈0); la copa termina en y≈+4.
-  const rootY = -3.4
-  const cursorLightRef = useRef()
+  const { wood, roots, leaves, rootY } = useMemo(() => buildTree(), [])
+  const leafRef = useRef()
   const rootRefs = useRef([])
 
-  // Peltre pulido con laca — mismo acabado en árbol y raíces
-  const pewter = useMemo(
+  // Datos base de cada hoja + parámetros de aleteo deterministas (fase, eje y
+  // amplitud propios) para animarlas de forma orgánica, no en bloque.
+  const leafData = useMemo(
     () =>
-      new THREE.MeshPhysicalMaterial({
-        color: '#cfd4dc',
-        roughness: 0.18,
-        metalness: 1,
-        clearcoat: 1,
-        clearcoatRoughness: 0.22,
-        envMapIntensity: 1.35,
+      leaves.map((it) => {
+        const basePos = new THREE.Vector3(...it.pos)
+        const baseQuat = new THREE.Quaternion(...it.quat)
+        const scale = new THREE.Vector3(it.r * 1.7, it.r, it.r * 0.34)
+        // fase pseudo-aleatoria estable a partir de la posición
+        const h = Math.sin(basePos.x * 12.9898 + basePos.y * 78.233 + basePos.z * 37.719) * 43758.5453
+        const phase = (h - Math.floor(h)) * Math.PI * 2
+        // eje de aleteo ligeramente inclinado, único por hoja
+        const axis = new THREE.Vector3(0.35 + (phase % 0.4), 0.2, 1).normalize()
+        return { basePos, baseQuat, scale, phase, axis, sway: 0.9 + (phase % 1) * 0.6 }
       }),
+    [leaves]
+  )
+
+  // Objetos temporales reutilizados en el bucle (cero asignaciones por frame)
+  const tmp = useMemo(
+    () => ({ m: new THREE.Matrix4(), q: new THREE.Quaternion(), sw: new THREE.Quaternion(), p: new THREE.Vector3() }),
     []
   )
 
-  // Árbol del logotipo (GLB de Higgsfield): se normaliza — centrado en XZ,
-  // base en y=0, altura LOGO_TREE_H — y se recubre con peltre. El mesh
-  // reconstruido trae normales poco confiables: se recalculan, y el material
-  // es de doble cara con un leve emissive para que nunca caiga en silueta.
-  const { scene: logoScene } = useGLTF(TREE_MODEL)
-  const logoPewter = useMemo(
-    () =>
-      new THREE.MeshPhysicalMaterial({
-        color: '#cfd4dc',
-        roughness: 0.3,
-        metalness: 0.9,
-        clearcoat: 1,
-        clearcoatRoughness: 0.3,
-        envMapIntensity: 1.4,
-        emissive: '#232931',
-        emissiveIntensity: 0.4,
-        side: THREE.DoubleSide,
-      }),
-    []
-  )
-  const logoTree = useMemo(() => {
-    const s = logoScene.clone(true)
-    s.traverse((o) => {
-      if (o.isMesh) {
-        o.castShadow = true
-        o.geometry.computeVertexNormals()
-        o.material = logoPewter
-      }
+  // Coloca las hojas una vez (estado base; con reduced-motion se quedan así)
+  useLayoutEffect(() => {
+    const mesh = leafRef.current
+    if (!mesh) return
+    const m = new THREE.Matrix4()
+    leafData.forEach((L, i) => {
+      m.compose(L.basePos, L.baseQuat, L.scale)
+      mesh.setMatrixAt(i, m)
     })
-    const box = new THREE.Box3().setFromObject(s)
-    const size = box.getSize(new THREE.Vector3())
-    const center = box.getCenter(new THREE.Vector3())
-    const k = LOGO_TREE_H / size.y
-    s.scale.setScalar(k)
-    s.position.set(-center.x * k, -box.min.y * k, -center.z * k)
-    const wrap = new THREE.Group()
-    wrap.add(s)
-    return wrap
-  }, [logoScene, logoPewter])
+    mesh.instanceMatrix.needsUpdate = true
+  }, [leafData])
 
   useEffect(
     () => () => {
@@ -278,24 +291,36 @@ function Tree({ reducedMotion, isMobile }) {
   )
 
   // Progreso de scroll: el recorrido copa→raíces se reparte HASTA el final de
-  // la sección "Visítanos" (#visita, con el mapa). Después se mantiene en 1.
+  // la sección "Visítanos" (#visita). Las raíces, en cambio, se expanden como
+  // naturaleza a lo largo de TODA la parte final: desde que #visita empieza a
+  // entrar hasta el fondo absoluto de la página (footer incluido).
   const scrollP = useRef(0)
-  const rootsP = useRef(0) // progreso del despliegue de raíces (sección #visita)
+  const rootsP = useRef(0) // progreso del despliegue de raíces (parte final)
+  const scrollVel = useRef(0) // velocidad de scroll (alimenta el aleteo de hojas)
+  const lastY = useRef(typeof window !== 'undefined' ? window.scrollY : 0)
   useEffect(() => {
     const read = () => {
       const doc = document.documentElement
       const vh = window.innerHeight
-      let denom = doc.scrollHeight - vh
+      const pageEnd = doc.scrollHeight - vh // fondo absoluto de la página
+      let denom = pageEnd
       const visit = document.getElementById('visita')
       if (visit) {
         const rect = visit.getBoundingClientRect()
         denom = rect.bottom + window.scrollY - vh
-        // Las raíces SOLO se extienden cuando la sección del mapa entra en
-        // pantalla: 0 al asomar por abajo → 1 con la sección bien visible.
-        rootsP.current = Math.min(1, Math.max(0, (vh * 0.85 - rect.top) / (vh * 0.75)))
+        // Las raíces crecen progresivamente desde que #visita asoma (start)
+        // hasta el final de la página (end) → se expanden por toda la parte
+        // final, no de golpe.
+        const start = rect.top + window.scrollY - vh * 0.9
+        const span = Math.max(1, pageEnd - start)
+        rootsP.current = Math.min(1, Math.max(0, (window.scrollY - start) / span))
       }
       denom = Math.max(1, denom)
       scrollP.current = Math.min(1, Math.max(0, window.scrollY / denom))
+      // Velocidad instantánea (px por evento), acumulada y limitada; se
+      // amortigua en useFrame → las hojas aletean con el scroll y se calman.
+      scrollVel.current = Math.min(120, scrollVel.current + Math.abs(window.scrollY - lastY.current))
+      lastY.current = window.scrollY
     }
     read()
     window.addEventListener('scroll', read, { passive: true })
@@ -328,39 +353,34 @@ function Tree({ reducedMotion, isMobile }) {
     const targetX = -0.03 - state.pointer.y * 0.04
     group.current.rotation.x += (targetX - group.current.rotation.x) * k * 0.85
 
-    // La luz cálida sigue al cursor (mouse tracking del prompt): ilumina el
-    // costado del árbol hacia donde apunta el usuario, con lerp suave.
-    const light = cursorLightRef.current
-    if (light) {
-      const lx = state.pointer.x * 4.5
-      const ly = camera.position.y + 1.4 + state.pointer.y * 2.4
-      light.position.x += (lx - light.position.x) * k
-      light.position.y += (ly - light.position.y) * k
-      light.position.z += (3.2 - light.position.z) * k
+    // VIENTO — todo el árbol respira/mece: cabeceo lento en Z (y un pelín en X)
+    // superpuesto al giro. Da vida continua a la malla completa. reduced-motion
+    // lo deja quieto.
+    if (!reducedMotion) {
+      group.current.rotation.z = Math.sin(t * 0.45) * 0.022 + Math.sin(t * 0.83 + 1.1) * 0.01
+    } else {
+      group.current.rotation.z = 0
     }
 
-    // Recorrido vertical: COPA (arriba) → RAÍCES (abajo), repartido en TODA
-    // la página. El árbol abarca y ∈ [-3.4, +8.6]; la cámara arranca en la
-    // punta de la copa y desciende pegada al árbol pasando ramas y hojas.
-    // Travelling lateral: arco suave para que el descenso se sienta como
-    // viaje a través de la escena, no como un ascensor.
-    // Cierre: en la sección final (mapa) la cámara retrocede en gran
-    // dolly-out y encuadra el ÁRBOL COMPLETO — copa, tronco y raíces recién
-    // brotadas — como el logotipo entero. Ahí "se completa" el árbol.
-    const midY = -3.4 + LOGO_TREE_H / 2 // centro del árbol (y = 2.6)
-    const jy = 7.4 - pe * 10.8 // viaje: +7.4 (copa) → -3.4 (base)
-    const jz = 7.2 - pe * 0.8
-    const camX = Math.sin(pe * Math.PI) * 0.85 * (1 - finS) * scale
-    const camY = (jy * (1 - finS) + midY * finS) * scale
-    const camZ = (jz * (1 - finS) + 18.5 * finS) * scale
-    camera.position.x += (camX - camera.position.x) * k * 0.9
+    // Recorrido vertical: COPA (arriba) → RAÍCES (abajo). Escalado por `scale`.
+    // Cierre cinematográfico: al llegar al final la cámara retrocede (dolly-out)
+    // y sube un poco para encuadrar el TRONCO abriéndose en las raíces — se ve
+    // parte del árbol fundiéndose con ellas, no solo las raíces sueltas.
+    const jCamY = 2.8 - pe * 13.6 //  +2.8 (copa) → -10.8 (base)
+    const jCamZ = 6.8 - pe * 0.9
+    const fCamY = -9.7 // encuadre final: algo por encima de la base del tronco
+    const fCamZ = 9.2 //  retrocede para ver el abanico completo de raíces
+    const camY = (jCamY * (1 - finS) + fCamY * finS) * scale
+    const camZ = (jCamZ * (1 - finS) + fCamZ * finS) * scale
     camera.position.y += (camY - camera.position.y) * k * 0.9
     camera.position.z += (camZ - camera.position.z) * k * 0.9
-    camera.lookAt(0, camera.position.y, 0)
+    // Mira al frente durante el recorrido; al final baja la vista al tronco→raíz
+    const lookY = camera.position.y * (1 - finS) + -10.7 * scale * finS
+    camera.lookAt(0, lookY, 0)
 
-    // Las raíces BROTAN escalonadas cuando el mapa entra en pantalla — cada
-    // una con su retraso y una desaceleración orgánica (rápida al nacer,
-    // asentándose despacio), como crece la naturaleza. reduced-motion: fijas.
+    // Las raíces BROTAN escalonadas al entrar la parte final — cada una con su
+    // retraso y una desaceleración orgánica (rápida al nacer, asentándose
+    // despacio), como crece la naturaleza. reduced-motion: fijas.
     for (let i = 0; i < roots.length; i++) {
       const mesh = rootRefs.current[i]
       if (!mesh) continue
@@ -376,16 +396,37 @@ function Tree({ reducedMotion, isMobile }) {
       // Se extienden hacia afuera (XZ) y hacia abajo (Y) desde la base
       mesh.scale.set(nextS, Math.max(0.001, nextS * 0.88 + 0.12), nextS)
     }
+
+    // HOJAS — aleteo estético: vaivén continuo + un extra que sube con la
+    // velocidad de scroll (las hojas "reaccionan" al desplazarse) y se calma
+    // sola al detenerse. Con reduced-motion quedan fijas (no se toca la malla).
+    if (leafRef.current && !reducedMotion) {
+      const vel = scrollVel.current
+      const amp = 0.055 + Math.min(0.3, vel * 0.0024)
+      const { m, q, sw, p } = tmp
+      for (let i = 0; i < leafData.length; i++) {
+        const L = leafData[i]
+        const a =
+          (Math.sin(t * 1.5 + L.phase) + 0.4 * Math.sin(t * 2.7 + L.phase * 1.6)) * amp * L.sway
+        sw.setFromAxisAngle(L.axis, a)
+        q.multiplyQuaternions(sw, L.baseQuat)
+        p.copy(L.basePos)
+        p.y += Math.sin(t * 1.2 + L.phase) * (0.018 + vel * 0.0006)
+        m.compose(p, q, L.scale)
+        leafRef.current.setMatrixAt(i, m)
+      }
+      leafRef.current.instanceMatrix.needsUpdate = true
+    }
+    // Amortigua la velocidad de scroll (aleteo que se apaga tras el scroll)
+    scrollVel.current *= Math.pow(0.02, delta)
   })
 
   return (
     <group ref={group} position={[0, 0, 0]} scale={scale}>
-      {/* Luz cálida que persigue al cursor — realce especular vivo */}
-      <pointLight ref={cursorLightRef} position={[0, 3, 3.2]} intensity={reducedMotion ? 0 : 14} color="#dfe5ee" distance={9} decay={1.8} />
-
-      {/* Árbol del logotipo oficial — modelo 3D generado con Higgsfield
-          (sam_3_3d) a partir del logo del manual de marca, en peltre pulido */}
-      <primitive object={logoTree} position={[0, rootY + 0.1, 0]} />
+      {/* Tronco y ramas — malla continua, cromo/peltre pulido */}
+      <mesh geometry={wood} castShadow frustumCulled={false}>
+        <meshStandardMaterial color="#8b95a4" roughness={0.28} metalness={0.95} envMapIntensity={0.7} />
+      </mesh>
 
       {/* Raíces — ancladas a la base; brotan escalonadas al final */}
       {roots.map((r, i) => (
@@ -395,32 +436,31 @@ function Tree({ reducedMotion, isMobile }) {
             rootRefs.current[i] = n
           }}
           geometry={r.geo}
-          material={pewter}
-          position={[0, rootY + 0.25, 0]}
+          position={[0, rootY, 0]}
           scale={[0.001, 0.001, 0.001]}
           castShadow
           frustumCulled={false}
-        />
+        >
+          <meshStandardMaterial color="#8b95a4" roughness={0.28} metalness={0.95} envMapIntensity={0.7} />
+        </mesh>
       ))}
 
-      {/* Disco de suelo sutil bajo las raíces */}
-      <mesh position={[0, rootY - 0.2, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-        <circleGeometry args={[1.9, 48]} />
-        <meshStandardMaterial color="#181d24" roughness={0.85} metalness={0.3} />
-      </mesh>
-
-      {/* Sombra de contacto para anclar el árbol (solo escritorio, por costo) */}
-      {!isMobile && !reducedMotion && (
-        <ContactShadows
-          position={[0, rootY - 0.24, 0]}
-          opacity={0.5}
-          scale={7}
-          blur={2.6}
-          far={4}
-          resolution={512}
-          color="#05070a"
+      {/* Hojas — dibujan la copa del logo. Atenuadas (sin resplandor blanco)
+          para que NO laven el texto claro encima, p. ej. en "Experiencias". */}
+      <instancedMesh ref={leafRef} args={[null, null, leaves.length]} frustumCulled={false}>
+        <sphereGeometry args={[1, 14, 14]} />
+        <meshStandardMaterial
+          color="#aeb2ad"
+          roughness={0.35}
+          metalness={0.45}
+          emissive="#2b2c28"
+          emissiveIntensity={0.18}
+          envMapIntensity={0.7}
         />
-      )}
+      </instancedMesh>
+
+      {/* Sin disco de suelo ni sombra de contacto: las raíces se expanden
+          libres "como naturaleza", sin un círculo que las ancle. */}
     </group>
   )
 }
@@ -444,46 +484,31 @@ export default function TreeBackground({ reducedMotion }) {
       <Canvas
         shadows
         dpr={[1, isMobile ? 1.5 : 1.85]}
-        camera={{ position: [0, 7.4, 7.2], fov: 42 }}
+        camera={{ position: [0, 2.8, 6.8], fov: 42 }}
         gl={{ antialias: true, powerPreference: 'high-performance' }}
         frameloop={frameloop}
       >
         <color attach="background" args={['#14181e']} />
-        {/* Niebla lejana: no debe tragarse el árbol en el dolly-out final (~17 u) */}
-        <fog attach="fog" args={['#14181e', 10, 40]} />
+        <fog attach="fog" args={['#14181e', 9, 20]} />
         <ambientLight intensity={0.3} />
-        <spotLight position={[5, 8, 5]} angle={0.5} penumbra={0.9} intensity={60} color="#e9eef6" castShadow />
+        <spotLight position={[5, 8, 5]} angle={0.5} penumbra={0.9} intensity={60} color="#fff2df" castShadow />
         <pointLight position={[-5, 2, -3]} intensity={16} color="#8fa0b8" />
         <pointLight position={[0, -3, 4]} intensity={9} color="#cfd5de" />
         <pointLight position={[3, 4, -4]} intensity={10} color="#eaf0ff" />
 
         <Suspense fallback={null}>
           <Float speed={reducedMotion ? 0 : 0.8} rotationIntensity={0} floatIntensity={reducedMotion ? 0 : 0.18}>
-            <Tree reducedMotion={reducedMotion} isMobile={isMobile} />
+            <Tree reducedMotion={reducedMotion} />
           </Float>
           {!reducedMotion && !isMobile && (
-            <>
-              {/* Dos capas de motas a distinta profundidad → parallax real:
-                  las cercanas viajan más rápido que las del fondo */}
-              <Sparkles count={45} scale={[8, 12, 5]} size={2} speed={0.16} color="#dbdbdb" opacity={0.32} />
-              <Sparkles
-                count={70}
-                scale={[16, 20, 4]}
-                position={[0, -2, -5]}
-                size={1.1}
-                speed={0.07}
-                color="#8fa0b8"
-                opacity={0.2}
-              />
-            </>
+            <Sparkles count={45} scale={[8, 12, 5]} size={2} speed={0.16} color="#dbdbdb" opacity={0.32} />
           )}
-          {/* Entorno frío (city): reflejos plata/azulados, sin dorados cálidos */}
-          <Environment preset="city" environmentIntensity={0.55} />
+          <Environment preset="night" environmentIntensity={0.8} />
         </Suspense>
       </Canvas>
 
-      {/* Realce cinematográfico en DOM (barato): brillo plata + viñeta */}
-      <div className="absolute inset-0 bg-[radial-gradient(120%_90%_at_50%_38%,rgba(198,203,211,0.08),transparent_60%)]" />
+      {/* Realce cinematográfico en DOM (barato): brillo cálido + viñeta */}
+      <div className="absolute inset-0 bg-[radial-gradient(120%_90%_at_50%_38%,rgba(214,205,183,0.10),transparent_60%)]" />
       <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,transparent_45%,rgba(15,18,23,0.72)_100%)]" />
     </div>
   )

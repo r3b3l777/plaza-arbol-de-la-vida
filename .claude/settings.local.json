@@ -37,7 +37,9 @@
       "Bash(pkill -f \"vite --host\")",
       "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" -H \"Bypass-Tunnel-Reminder: true\" https://quiet-moose-stick.loca.lt/)",
       "Bash(pkill -f \"localtunnel\")",
-      "Bash(pkill -f \"vite$\")"
+      "Bash(pkill -f \"vite$\")",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:5173/)",
+      "Bash(open http://localhost:5173/)"
     ]
   }
 }

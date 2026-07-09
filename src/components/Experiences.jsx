@@ -53,12 +53,12 @@ export default function Experiences() {
       <div className="mx-auto max-w-7xl px-6 sm:px-8">
         <div className="max-w-2xl">
           <Reveal>
-            <p className="font-body text-xs tracking-[0.4em] uppercase text-plata mb-6">
+            <p className="font-body text-xs tracking-[0.4em] uppercase text-plata mb-6 text-protect">
               Experiencias
             </p>
           </Reveal>
           <Reveal delay={0.1}>
-            <h2 className="font-display text-4xl sm:text-5xl lg:text-6xl leading-tight text-blanco text-balance">
+            <h2 className="font-display text-4xl sm:text-5xl lg:text-6xl leading-tight text-blanco text-balance text-protect">
               Un solo lugar, cuatro formas de vivirlo
             </h2>
           </Reveal>
