@@ -5,7 +5,7 @@ export default function Footer() {
     <footer className="relative panel-dark border-t border-plata/12 pt-16 pb-10">
       <div className="mx-auto max-w-7xl px-6 sm:px-8">
         <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-10">
-          <div>
+          <div className="text-center md:text-left">
             <div className="inline-flex items-center justify-center rounded-2xl bg-blanco px-6 py-4">
               <img
                 src="/img/logo-lockup-dark.png"
@@ -16,7 +16,7 @@ export default function Footer() {
                 loading="lazy"
               />
             </div>
-            <p className="mt-4 font-serif italic text-blanco/50 max-w-sm">
+            <p className="mt-4 font-serif italic text-blanco/50 max-w-sm mx-auto md:mx-0">
               Más que una plaza, un destino. El punto de encuentro perfecto en
               Metepec, Pueblo Mágico.
             </p>

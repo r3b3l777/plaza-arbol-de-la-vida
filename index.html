@@ -5,6 +5,10 @@
     <link rel="icon" type="image/png" href="/img/logo-icon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="theme-color" content="#20252d" />
+    <!-- Assets críticos de la intro y del árbol 3D: descargan desde el primer byte -->
+    <link rel="preload" as="image" href="/img/arbol-marca-blanco.png" />
+    <link rel="preload" as="fetch" href="/models/arbol-logo.glb" crossorigin />
+    <link rel="preload" as="audio" href="/audio/riser.mp3" />
     <meta
       name="description"
       content="Plaza Árbol de la Vida — el punto de encuentro perfecto en Metepec. 19 establecimientos de gastronomía, salud, belleza, bienestar y arte. Abierto todos los días de 7:00 a 23:30."
@@ -28,6 +32,32 @@
     <meta name="twitter:card" content="summary_large_image" />
 
     <title>Plaza Árbol de la Vida · Metepec</title>
+
+    <!-- Datos estructurados: ficha de negocio para buscadores -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "ShoppingCenter",
+        "name": "Plaza Árbol de la Vida",
+        "description": "Plaza comercial en Metepec, Pueblo Mágico: gastronomía, salud, belleza, bienestar y arte.",
+        "address": {
+          "@type": "PostalAddress",
+          "streetAddress": "Av. Adolfo López Mateos 2330, Bella Vista",
+          "postalCode": "52172",
+          "addressLocality": "Metepec",
+          "addressRegion": "Estado de México",
+          "addressCountry": "MX"
+        },
+        "telephone": "+527222385599",
+        "openingHours": "Mo-Su 07:00-23:30",
+        "aggregateRating": {
+          "@type": "AggregateRating",
+          "ratingValue": "4.6",
+          "reviewCount": "62"
+        },
+        "image": "/img/plaza-arbol-de-la-vida-al-atardecer.jpg"
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>

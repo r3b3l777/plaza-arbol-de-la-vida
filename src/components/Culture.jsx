@@ -39,22 +39,23 @@ export default function Culture() {
           </Reveal>
           <Reveal delay={0.1}>
             <h2 className="font-display text-4xl sm:text-5xl lg:text-6xl leading-tight text-carbon text-balance">
-              Una plaza que también es galería
+              Una plaza que también es cultura
             </h2>
           </Reveal>
           <Reveal delay={0.2}>
             <p className="mt-6 font-body text-lg sm:text-xl font-light text-carbon/75 text-balance leading-relaxed">
-              Exposiciones, conversatorios y activaciones culturales dan vida a
-              nuestros pasillos durante todo el año. Un punto de encuentro para
-              artistas, familias y visitantes que buscan algo más que comprar.
+              Contamos con una galería de arte propia: la plaza promueve la
+              cultura y abre sus espacios a exposiciones con artistas de todo el
+              Estado de México. Un punto de encuentro para creadores, familias y
+              visitantes que buscan algo más que comprar.
             </p>
           </Reveal>
 
           <ul className="mt-10 space-y-5">
             {[
-              'Galería de arte con exposiciones rotativas',
-              'Eventos y activaciones cada temporada',
-              'Espacios de convivencia y descanso',
+              'Galería de arte con exposiciones rotativas de artistas del Edo. Méx.',
+              'Cultura impulsada por la plaza durante todo el año',
+              'Eventos, conversatorios y activaciones cada temporada',
             ].map((item, i) => (
               <Reveal as="li" key={item} delay={0.3 + i * 0.08}>
                 <div className="flex items-center gap-4">

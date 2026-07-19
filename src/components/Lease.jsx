@@ -114,7 +114,7 @@ export default function Lease() {
           <Reveal delay={0.15}>
             <p className="font-body text-carbon/70 leading-relaxed max-w-md mb-10">
               Completa el formulario y un asesor de la administración te contactará
-              en menos de 72 horas por correo, WhatsApp o llamada.
+              en menos de 24 horas por correo, WhatsApp o llamada.
             </p>
           </Reveal>
           <ul className="space-y-6">
@@ -141,7 +141,7 @@ export default function Lease() {
                   </svg>
                 </div>
                 <p className="font-serif text-lg text-carbon/85 max-w-sm mx-auto leading-relaxed">
-                  Gracias, recibimos tu información. En menos de 72 horas la
+                  Gracias, recibimos tu información. En menos de 24 horas la
                   administración se comunicará contigo por correo, WhatsApp o llamada.
                 </p>
               </div>

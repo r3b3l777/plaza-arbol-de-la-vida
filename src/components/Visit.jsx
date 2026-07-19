@@ -34,11 +34,11 @@ export default function Visit() {
         <div className="mt-16 grid grid-cols-1 md:grid-cols-3 gap-8">
           {INFO.map((item, i) => (
             <Reveal key={item.label} delay={i * 0.1}>
-              <div className="h-full rounded-2xl border border-plata/15 bg-ink/40 p-8 text-center flex flex-col">
+              <div className="h-full rounded-2xl border border-plata/25 bg-ink/85 backdrop-blur-md p-8 text-center flex flex-col shadow-[0_20px_50px_-20px_rgba(0,0,0,0.7)]">
                 <p className="font-body text-xs tracking-[0.3em] uppercase text-plata mb-4">
                   {item.label}
                 </p>
-                <p className="font-serif text-lg text-blanco/85 leading-relaxed">{item.value}</p>
+                <p className="font-serif text-lg text-blanco leading-relaxed">{item.value}</p>
                 {item.live && (
                   <p className="mt-3 inline-flex items-center justify-center gap-2 font-body text-sm text-blanco/60">
                     <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" aria-hidden="true" />

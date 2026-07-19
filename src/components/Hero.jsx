@@ -110,20 +110,24 @@ export default function Hero({ reducedMotion }) {
             </a>
           </motion.div>
 
-          {/* Cintillo de disponibilidad */}
+          {/* CTA de disponibilidad — destacado en dorado para impulsar ventas */}
           <motion.a
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 1, ease: EASE, delay: 1.1 }}
             href="#renta"
-            className="pointer-events-auto inline-flex items-center gap-3 rounded-full border border-plata/30 bg-ink/60 backdrop-blur-sm px-5 py-2.5 min-h-11 font-body text-xs sm:text-sm text-blanco/80 cursor-pointer transition-colors duration-300 hover:border-plata"
+            className="cta-avail pointer-events-auto group inline-flex items-center gap-3 rounded-full px-6 py-3 min-h-12 font-body text-sm sm:text-base text-blanco cursor-pointer"
           >
-            <span className="h-1.5 w-1.5 rounded-full bg-niebla animate-pulse" aria-hidden="true" />
+            <span className="cta-avail-dot" aria-hidden="true" />
             <span>
-              <strong className="font-serif italic text-claro font-normal">1 local disponible</strong>
-              {' '}· 79 m²
+              <strong className="font-serif italic font-normal text-[#f2d79a]">1 local disponible</strong>
+              <span className="text-blanco/70">{' '}· 79 m²</span>
             </span>
-            <span className="text-plata" aria-hidden="true">→</span>
+            <span className="hidden sm:inline h-4 w-px bg-[#e8c27a]/40" aria-hidden="true" />
+            <span className="font-body text-xs sm:text-sm tracking-[0.18em] uppercase text-[#f2d79a] font-medium">
+              Renta tu local
+              <span className="inline-block transition-transform duration-300 group-hover:translate-x-1" aria-hidden="true">{' '}→</span>
+            </span>
           </motion.a>
         </div>
       </motion.div>
