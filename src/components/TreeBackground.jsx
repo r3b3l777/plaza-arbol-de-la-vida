@@ -294,6 +294,26 @@ export default function TreeBackground({ reducedMotion }) {
   const bloomRef = useRef()
   const frameloop = reducedMotion || !visible ? 'demand' : 'always'
 
+  // En móvil / iOS el WebGL con material metálico + envMap no renderiza bien en
+  // Safari de iOS (Chrome iOS usa el mismo motor WebKit, por eso también falla).
+  // En lugar del 3D mostramos un telón estático con el árbol de la marca:
+  // se ve bien, carga al instante y no gasta batería.
+  if (isMobile) {
+    return (
+      <div className="fixed inset-0 -z-10 pointer-events-none" aria-hidden="true" style={{ height: '100dvh', backgroundColor: '#14181e' }}>
+        <img
+          src="/img/arbol-marca-blanco.png"
+          alt=""
+          loading="eager"
+          className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[80%] max-w-[440px] opacity-90"
+          style={{ filter: 'drop-shadow(0 12px 48px rgba(0,0,0,0.55))' }}
+        />
+        <div className="absolute inset-0 bg-[radial-gradient(120%_90%_at_50%_42%,rgba(214,205,183,0.10),transparent_60%)]" />
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,transparent_45%,rgba(15,18,23,0.65)_100%)]" />
+      </div>
+    )
+  }
+
   return (
     <div className="fixed inset-0 -z-10 pointer-events-none" aria-hidden="true" style={{ height: '100dvh' }}>
       <Canvas
