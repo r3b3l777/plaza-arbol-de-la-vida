@@ -84,7 +84,7 @@ function MicroDust({ reducedMotion, count = 1100, everyNthFrame = 1 }) {
   )
 }
 
-function LogoTree({ reducedMotion, scrollRef, pointerRef }) {
+function LogoTree({ reducedMotion, scrollRef, pointerRef, isMobile }) {
   const group = useRef()
   const inner = useRef()
   const { scene } = useGLTF(MODEL)
@@ -103,11 +103,11 @@ function LogoTree({ reducedMotion, scrollRef, pointerRef }) {
       roughness: 0.3, // satinado con un punto más de nitidez de facetas
       clearcoat: 1.0, // capa cristalina tipo diamante
       clearcoatRoughness: 0.12,
-      envMapIntensity: 1.25,
+      envMapIntensity: 1.45, // recoge lo que aportaban las luces retiradas
       specularIntensity: 1.0,
       specularColor: new THREE.Color('#ffffff'),
-      sheen: 0.3,
-      sheenColor: new THREE.Color('#e2c087'), // sheen dorado suave
+      // Sin `sheen`: es una capa BRDF extra que se evalúa en cada píxel y su
+      // aporte (un velo dorado tenue) ahora lo dan el color y las luces.
     })
     // Subdivisión (Loop) → muchos más polígonos: superficie ultra suave y
     // detallada, clave en el zoom microscópico (sin facetas). Antes se saltaba
@@ -221,10 +221,17 @@ function LogoTree({ reducedMotion, scrollRef, pointerRef }) {
     // El oro viene del COLOR del metal, no de subir la luz: a más intensidad
     // el tone mapping lo lleva a BLANCO, no a dorado. El emissive se queda en
     // una brasa mínima que el bloom convierte en halo cálido.
-    mat.color.copy(peltre).lerp(oro, reveal)
-    mat.emissive.setRGB(0.93, 0.74, 0.4).multiplyScalar(reveal * 0.07)
-    mat.sheen = 0.3 + reveal * 0.35
-    mat.envMapIntensity = 1.25 + reveal * 0.3
+    //
+    // El metal NO se tiñe de oro por completo (0.58): se queda a medio camino
+    // entre peltre y oro para que sobre esa base los reflejos de colores —
+    // ámbar, oro rosa, oro verde — se lean como un dorado con vida en vez de
+    // una pieza de oro macizo plano.
+    mat.color.copy(peltre).lerp(oro, reveal * 0.58)
+    mat.emissive.setRGB(0.93, 0.74, 0.4).multiplyScalar(reveal * 0.06)
+    // En móvil el entorno es un HDR de estudio, mucho más luminoso que los
+    // Lightformers de escritorio: si además se sube en el remate, el reflejo
+    // blanco se come el oro. Ahí se BAJA para que manden las luces de color.
+    mat.envMapIntensity = 1.45 + reveal * (isMobile ? -0.55 : 0.3)
 
     // Respiración de escala, más profunda dentro del árbol
     const breathe = 1 + live * Math.sin(t * 0.6) * (0.012 + 0.016 * gem * (1 - reveal))
@@ -243,18 +250,32 @@ function LogoTree({ reducedMotion, scrollRef, pointerRef }) {
 }
 
 // Luz especular que orbita → un brillo recorre el metal (detalle continuo)
-function OrbitingHighlight({ reducedMotion }) {
+function OrbitingHighlight({ reducedMotion, scrollRef }) {
   const ref = useRef()
   useFrame((state) => {
     if (!ref.current) return
     const t = reducedMotion ? 0.7 : state.clock.elapsedTime
     ref.current.position.set(Math.cos(t * 0.35) * 4, 1.5 + Math.sin(t * 0.5) * 1.5, Math.sin(t * 0.35) * 4 + 1.5)
+    // Al final, el brillo que recorre el metal vira a oro verde: es el tercer
+    // tono del remate y el que lo separa de un dorado plano.
+    const { reveal } = phases(scrollRef.current)
+    ref.current.color.copy(BASE_HIGHLIGHT).lerp(ORO_VERDE, reveal)
   })
   return <pointLight ref={ref} intensity={12} distance={12} decay={1.6} color="#ffffff" />
 }
 
 // Iluminación LUXURY de joyería: split cálido (champán) / frío (platino) que
 // orbita e intensifica CON SUTILEZA en el zoom profundo. Sin colores saturados.
+// Paleta del remate: los reflejos se separan en tres oros distintos (ámbar,
+// oro rosa, oro verde) en vez de un único dorado plano. Es la variación "RGB"
+// pero SIEMPRE dentro de la familia del oro — nada de magenta/cian.
+const ORO_AMBAR = new THREE.Color('#ffb347')
+const ORO_ROSA = new THREE.Color('#ff9d7c')
+const ORO_VERDE = new THREE.Color('#e6e58c')
+const BASE_WARM = new THREE.Color('#f4ce88')
+const BASE_COOL = new THREE.Color('#e2e9f4')
+const BASE_HIGHLIGHT = new THREE.Color('#ffffff')
+
 function LuxuryLights({ scrollRef }) {
   const warm = useRef(), cool = useRef()
   useFrame((state) => {
@@ -263,7 +284,9 @@ function LuxuryLights({ scrollRef }) {
     const I = 8 + gem * 13 // realce contenido y sobrio
     if (warm.current) {
       // Al formarse el logo la luz dorada sube y se pone de frente: el remate
-      // cálido del recorrido. La fría cede para que el oro no salga verdoso.
+      // cálido del recorrido. La fría vira a oro rosa (no se apaga: es la que
+      // mete el segundo tono del dorado).
+      warm.current.color.copy(BASE_WARM).lerp(ORO_AMBAR, reveal)
       warm.current.intensity = I * 1.25 + reveal * 9
       const front = reveal * 1.6
       warm.current.position.set(
@@ -273,7 +296,8 @@ function LuxuryLights({ scrollRef }) {
       )
     }
     if (cool.current) {
-      cool.current.intensity = I * 0.75 * (1 - reveal * 0.55)
+      cool.current.color.copy(BASE_COOL).lerp(ORO_ROSA, reveal)
+      cool.current.intensity = I * 0.75 * (1 - reveal * 0.3) + reveal * 4
       cool.current.position.set(Math.cos(t * 0.28 + Math.PI) * 3, 1.2 + Math.cos(t * 0.32) * 1.2, 2 + Math.cos(t * 0.28) * 0.6)
     }
   })
@@ -289,11 +313,14 @@ function LuxuryLights({ scrollRef }) {
 // cromática cuando el zoom es microscópico → sensación de lente de cine / gema.
 // Solo modula el bloom con la profundidad (glow contenido). Sin aberración
 // cromática dinámica → nada de franjas RGB.
-function FXDriver({ scrollRef, bloomRef }) {
+function FXDriver({ scrollRef, bloomRef, isMobile }) {
   useFrame(() => {
     const { gem, reveal } = phases(scrollRef.current)
-    // + el empujón del remate dorado al formarse el logo
-    if (bloomRef.current) bloomRef.current.intensity = 0.24 + gem * 0.28 + reveal * 0.12
+    // + el empujón del remate dorado al formarse el logo (contenido en móvil,
+    // donde el HDR ya aporta mucha luz y el bloom lo llevaría a blanco)
+    if (bloomRef.current) {
+      bloomRef.current.intensity = 0.24 + gem * 0.28 + reveal * (isMobile ? 0.05 : 0.12)
+    }
   })
   return null
 }
@@ -312,28 +339,45 @@ export default function TreeBackground({ reducedMotion }) {
   // Progreso de scroll compartido (0 arriba → 1 al formarse en #visita)
   const scrollRef = useRef(0)
   useEffect(() => {
+    // El punto donde el recorrido llega a 1 se MIDE aparte y se guarda. Antes
+    // se recalculaba con getBoundingClientRect en cada evento de scroll, lo que
+    // forzaba un layout por frame mientras se desplaza la página: justo el tipo
+    // de trabajo que se siente como scroll pegajoso. Ahora el scroll solo lee
+    // `window.scrollY`, que no toca el layout.
+    let denom = 1
     const read = () => {
-      const doc = document.documentElement
-      const vh = window.innerHeight
-      const visit = document.getElementById('visita')
-      let targetTop
-      if (visit) {
-        // Se forma cuando el encabezado "Te esperamos en el corazón de Metepec"
-        // (arriba de #visita) ya está en pantalla — no antes.
-        const top = visit.getBoundingClientRect().top + window.scrollY
-        targetTop = top - vh * 0.28
-      } else {
-        targetTop = doc.scrollHeight - vh
-      }
-      const denom = Math.max(1, targetTop)
       scrollRef.current = Math.min(1, Math.max(0, window.scrollY / denom))
     }
-    read()
+    const measure = () => {
+      const vh = window.innerHeight
+      const visit = document.getElementById('visita')
+      // Se forma cuando el encabezado "Te esperamos en el corazón de Metepec"
+      // (arriba de #visita) ya está en pantalla — no antes.
+      const targetTop = visit
+        ? visit.getBoundingClientRect().top + window.scrollY - vh * 0.28
+        : document.documentElement.scrollHeight - vh
+      denom = Math.max(1, targetTop)
+      read()
+    }
+    // Re-medir en un rAF: las imágenes al cargar mueven el documento y el
+    // ResizeObserver puede dispararse varias veces seguidas.
+    let pending = 0
+    const scheduleMeasure = () => {
+      cancelAnimationFrame(pending)
+      pending = requestAnimationFrame(measure)
+    }
+    measure()
     window.addEventListener('scroll', read, { passive: true })
-    window.addEventListener('resize', read)
+    window.addEventListener('resize', scheduleMeasure)
+    window.addEventListener('load', scheduleMeasure)
+    const ro = new ResizeObserver(scheduleMeasure)
+    ro.observe(document.body)
     return () => {
+      cancelAnimationFrame(pending)
+      ro.disconnect()
       window.removeEventListener('scroll', read)
-      window.removeEventListener('resize', read)
+      window.removeEventListener('resize', scheduleMeasure)
+      window.removeEventListener('load', scheduleMeasure)
     }
   }, [])
 
@@ -419,19 +463,22 @@ export default function TreeBackground({ reducedMotion }) {
       >
         <color attach="background" args={['#14181e']} />
         <fog attach="fog" args={['#14181e', 6, 13]} />
+        {/* Iluminación adelgazada de 10 luces a 7. El material (physical con
+            clearcoat) se evalúa POR LUZ y por píxel, y el árbol cubre casi toda
+            la pantalla: cada luz de menos es tiempo de GPU en cada frame.
+            Fuera: el spotLight con penumbra (la más cara con diferencia) y dos
+            rellenos estáticos; su aporte lo recogen la direccional (ahora key
+            de verdad) y el envMap. */}
         <ambientLight intensity={0.42} />
         <hemisphereLight args={['#cfe0ff', '#1b2028', 0.6]} />
-        <spotLight position={[5, 8, 5]} angle={0.5} penumbra={0.9} intensity={52} color="#fff2df" />
-        <pointLight position={[-5, 2, -3]} intensity={15} color="#9fb2cc" />
-        <pointLight position={[0, 2, -6]} intensity={13} color="#dfe7f5" />
-        <pointLight position={[3, -2, 4]} intensity={9} color="#eaf0ff" />
-        <directionalLight position={[2, 3, 5]} intensity={0.9} color="#ffffff" />
-        <OrbitingHighlight reducedMotion={reducedMotion} />
+        <directionalLight position={[3, 5, 5]} intensity={2.6} color="#fff2df" />
+        <pointLight position={[0, 2, -6]} intensity={16} color="#dfe7f5" />
+        <OrbitingHighlight reducedMotion={reducedMotion} scrollRef={scrollRef} />
         {!reducedMotion && <LuxuryLights scrollRef={scrollRef} />}
 
         <Suspense fallback={null}>
           <Float speed={reducedMotion ? 0 : 0.7} rotationIntensity={0} floatIntensity={reducedMotion ? 0 : 0.15}>
-            <LogoTree reducedMotion={reducedMotion} scrollRef={scrollRef} pointerRef={pointerRef} />
+            <LogoTree reducedMotion={reducedMotion} scrollRef={scrollRef} pointerRef={pointerRef} isMobile={isMobile} />
           </Float>
           {/* Micro-polvo también en móvil, con menos motas y a media cadencia */}
           <MicroDust
@@ -467,10 +514,21 @@ export default function TreeBackground({ reducedMotion }) {
             cromática. También en móvil —sin él el árbol se veía plano frente a
             Chrome—, pero sin multisampling y con la viñeta que ya está en DOM. */}
         <EffectComposer disableNormalPass multisampling={isMobile ? 0 : 4}>
-          <Bloom ref={bloomRef} mipmapBlur intensity={0.28} luminanceThreshold={0.8} luminanceSmoothing={0.2} radius={0.62} />
+          {/* En móvil el bloom se calcula a la mitad de resolución: es un
+              desenfoque, no tiene detalle que perder, y ahorra la mayor parte
+              de su costo de relleno. */}
+          <Bloom
+            ref={bloomRef}
+            mipmapBlur
+            intensity={0.28}
+            luminanceThreshold={0.8}
+            luminanceSmoothing={0.2}
+            radius={0.62}
+            resolutionScale={isMobile ? 0.5 : 1}
+          />
           <Vignette eskil={false} offset={0.26} darkness={0.74} />
         </EffectComposer>
-        <FXDriver scrollRef={scrollRef} bloomRef={bloomRef} />
+        <FXDriver scrollRef={scrollRef} bloomRef={bloomRef} isMobile={isMobile} />
       </Canvas>
 
       {/* Realce en DOM: brillo cálido + viñeta para legibilidad del contenido */}

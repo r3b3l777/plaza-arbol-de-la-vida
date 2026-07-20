@@ -33,6 +33,8 @@ export default function PhotoBreak() {
         <img
           src={HERO_PHOTO}
           alt="Plaza Árbol de la Vida al atardecer"
+          loading="lazy"
+          decoding="async"
           className="absolute inset-0 h-full w-full object-cover"
         />
         <div className="absolute inset-0 bg-gradient-to-b from-ink/80 via-ink/30 to-ink/85" />
@@ -68,6 +70,10 @@ export default function PhotoBreak() {
           <motion.img
             src={HERO_PHOTO}
             alt="Plaza Árbol de la Vida al atardecer"
+            /* 820 KB a media página: se difiere y se decodifica fuera del hilo
+               principal para que su llegada no corte el scroll */
+            loading="lazy"
+            decoding="async"
             style={{ scale: imgScale, y: imgY }}
             className="absolute inset-0 h-full w-full object-cover"
           />

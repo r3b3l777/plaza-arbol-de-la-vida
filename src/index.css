@@ -210,6 +210,28 @@ body {
   .nav-liquid { background: rgba(18, 22, 28, 0.94); }
   .menu-liquid { background: rgba(18, 22, 28, 0.96); }
 }
+
+/*
+ * En teléfono se recortan los radios de desenfoque. `backdrop-filter` obliga a
+ * recomponer lo que hay DETRÁS del elemento en cada frame y su costo crece con
+ * el radio; sobre una nav fija durante el scroll es de lo más caro que hay en
+ * iOS. A 12-14 px el vidrio se sigue leyendo igual en una pantalla de teléfono.
+ */
+@media (max-width: 767px) {
+  .nav-liquid {
+    backdrop-filter: blur(14px) saturate(1.7);
+    -webkit-backdrop-filter: blur(14px) saturate(1.7);
+  }
+  .menu-liquid {
+    backdrop-filter: blur(14px) saturate(1.7);
+    -webkit-backdrop-filter: blur(14px) saturate(1.7);
+  }
+  .btn-liquid,
+  .btn-liquid-solid {
+    backdrop-filter: blur(10px) saturate(1.8);
+    -webkit-backdrop-filter: blur(10px) saturate(1.8);
+  }
+}
 @media (prefers-reduced-transparency: reduce) {
   .nav-liquid,
   .menu-liquid {

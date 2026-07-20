@@ -44,8 +44,13 @@ export default function ParticleField({ reducedMotion }) {
     }))
 
     const mouse = { x: -9999, y: -9999 }
+    // La posición del canvas se guarda y solo se vuelve a medir al hacer
+    // scroll/resize: pedir getBoundingClientRect en CADA mousemove obligaba al
+    // navegador a recalcular el layout decenas de veces por segundo.
+    let rect = canvas.getBoundingClientRect()
+    let rectDirty = false
+    const remeasure = () => { rectDirty = true } // se aplica en el próximo frame
     const onMove = (e) => {
-      const rect = canvas.getBoundingClientRect()
       mouse.x = e.clientX - rect.left
       mouse.y = e.clientY - rect.top
     }
@@ -61,6 +66,10 @@ export default function ParticleField({ reducedMotion }) {
     const tick = (t) => {
       raf = requestAnimationFrame(tick)
       if (!running) return
+      if (rectDirty) {
+        rect = canvas.getBoundingClientRect()
+        rectDirty = false
+      }
       ctx.clearRect(0, 0, w, h)
       for (const p of parts) {
         // Repulsión suave del cursor
@@ -97,16 +106,19 @@ export default function ParticleField({ reducedMotion }) {
     })
     io.observe(canvas)
 
+    const onResize = () => { resize(); remeasure() }
     window.addEventListener('mousemove', onMove, { passive: true })
     document.documentElement.addEventListener('mouseleave', onLeave)
-    window.addEventListener('resize', resize)
+    window.addEventListener('resize', onResize)
+    window.addEventListener('scroll', remeasure, { passive: true })
 
     return () => {
       cancelAnimationFrame(raf)
       io.disconnect()
       window.removeEventListener('mousemove', onMove)
       document.documentElement.removeEventListener('mouseleave', onLeave)
-      window.removeEventListener('resize', resize)
+      window.removeEventListener('resize', onResize)
+      window.removeEventListener('scroll', remeasure)
     }
   }, [reducedMotion])
 
