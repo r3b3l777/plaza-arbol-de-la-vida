@@ -33,10 +33,11 @@ function phases(p) {
  * Micro-polvo: nube de motas que flotan en el volumen del árbol. De lejos casi
  * imperceptibles; en el zoom profundo se revelan como partículas microscópicas.
  */
-function MicroDust({ reducedMotion }) {
+function MicroDust({ reducedMotion, count = 1100, everyNthFrame = 1 }) {
   const ref = useRef()
+  const tick = useRef(0)
   const { positions, phasesArr } = useMemo(() => {
-    const N = 1100
+    const N = count
     const positions = new Float32Array(N * 3)
     const phasesArr = new Float32Array(N)
     for (let i = 0; i < N; i++) {
@@ -46,11 +47,15 @@ function MicroDust({ reducedMotion }) {
       phasesArr[i] = Math.random() * Math.PI * 2
     }
     return { positions, phasesArr }
-  }, [])
+  }, [count])
 
   useFrame((state) => {
     if (!ref.current || reducedMotion) return
     const t = state.clock.elapsedTime
+    // Recorrer las motas en JS es lo más caro de este componente: en móvil se
+    // hace una de cada dos veces (a simple vista no se nota, son motas).
+    tick.current++
+    if (tick.current % everyNthFrame !== 0) return
     const arr = ref.current.geometry.attributes.position.array
     for (let i = 0; i < phasesArr.length; i++) {
       const ph = phasesArr[i]
@@ -86,7 +91,7 @@ function LogoTree({ reducedMotion, scrollRef, pointerRef }) {
   const { viewport, camera } = useThree()
 
   // Clona la escena y aplica material cromo-gema (iridiscencia fuerte) + normales
-  const { model, aspect } = useMemo(() => {
+  const { model, aspect, mat, peltre, oro } = useMemo(() => {
     const s = scene.clone(true)
     // Acabado LUXURY con un toque DIAMANTE, consistente Safari/Chrome:
     // se evitan iridescence/anisotropy (extensiones KHR que Safari renderiza
@@ -136,7 +141,13 @@ function LogoTree({ reducedMotion, scrollRef, pointerRef }) {
     wrap.add(s)
     wrap.scale.setScalar(k)
     // Proporción ancho/alto ya normalizada (alto = 1): sirve para encuadrar.
-    return { model: wrap, aspect: size.x / (size.y || 1) }
+    return {
+      model: wrap,
+      aspect: size.x / (size.y || 1),
+      mat,
+      peltre: new THREE.Color('#c4cbd6'), // color base del metal
+      oro: new THREE.Color('#e6bd7c'), // remate dorado del final
+    }
   }, [scene])
 
   // Encuadre. En escritorio se conserva el tamaño de siempre (1.488). En
@@ -203,6 +214,18 @@ function LogoTree({ reducedMotion, scrollRef, pointerRef }) {
     const targetZ = live * Math.sin(t * 0.42 + 0.6) * 0.02
     group.current.rotation.z += (targetZ - group.current.rotation.z) * k
 
+    // === REMATE DORADO ===
+    // Al FORMARSE el logo (final del recorrido) el peltre se enciende con un
+    // rescoldo de oro: sube el sheen dorado y aparece un emissive cálido que el
+    // bloom convierte en brillo. Se apaga solo al volver a subir.
+    // El oro viene del COLOR del metal, no de subir la luz: a más intensidad
+    // el tone mapping lo lleva a BLANCO, no a dorado. El emissive se queda en
+    // una brasa mínima que el bloom convierte en halo cálido.
+    mat.color.copy(peltre).lerp(oro, reveal)
+    mat.emissive.setRGB(0.93, 0.74, 0.4).multiplyScalar(reveal * 0.07)
+    mat.sheen = 0.3 + reveal * 0.35
+    mat.envMapIntensity = 1.25 + reveal * 0.3
+
     // Respiración de escala, más profunda dentro del árbol
     const breathe = 1 + live * Math.sin(t * 0.6) * (0.012 + 0.016 * gem * (1 - reveal))
     const target = baseScale * breathe
@@ -236,14 +259,21 @@ function LuxuryLights({ scrollRef }) {
   const warm = useRef(), cool = useRef()
   useFrame((state) => {
     const t = state.clock.elapsedTime
-    const { gem } = phases(scrollRef.current)
+    const { gem, reveal } = phases(scrollRef.current)
     const I = 8 + gem * 13 // realce contenido y sobrio
     if (warm.current) {
-      warm.current.intensity = I * 1.25 // el dorado manda un poco
-      warm.current.position.set(Math.cos(t * 0.28) * 3, 1.6 + Math.sin(t * 0.3) * 1.2, 2 + Math.sin(t * 0.28) * 0.6)
+      // Al formarse el logo la luz dorada sube y se pone de frente: el remate
+      // cálido del recorrido. La fría cede para que el oro no salga verdoso.
+      warm.current.intensity = I * 1.25 + reveal * 9
+      const front = reveal * 1.6
+      warm.current.position.set(
+        Math.cos(t * 0.28) * 3 * (1 - reveal),
+        1.6 + Math.sin(t * 0.3) * 1.2 * (1 - reveal * 0.7),
+        2 + Math.sin(t * 0.28) * 0.6 + front
+      )
     }
     if (cool.current) {
-      cool.current.intensity = I * 0.75
+      cool.current.intensity = I * 0.75 * (1 - reveal * 0.55)
       cool.current.position.set(Math.cos(t * 0.28 + Math.PI) * 3, 1.2 + Math.cos(t * 0.32) * 1.2, 2 + Math.cos(t * 0.28) * 0.6)
     }
   })
@@ -261,8 +291,9 @@ function LuxuryLights({ scrollRef }) {
 // cromática dinámica → nada de franjas RGB.
 function FXDriver({ scrollRef, bloomRef }) {
   useFrame(() => {
-    const { gem } = phases(scrollRef.current)
-    if (bloomRef.current) bloomRef.current.intensity = 0.24 + gem * 0.28
+    const { gem, reveal } = phases(scrollRef.current)
+    // + el empujón del remate dorado al formarse el logo
+    if (bloomRef.current) bloomRef.current.intensity = 0.24 + gem * 0.28 + reveal * 0.12
   })
   return null
 }
@@ -327,13 +358,52 @@ export default function TreeBackground({ reducedMotion }) {
     }
   }, [reducedMotion])
 
+  // Giroscopio: en el teléfono el árbol gira al inclinar el aparato, igual que
+  // sigue al cursor en escritorio (alimenta el MISMO `pointerRef`).
+  // iOS exige pedir permiso DENTRO de un gesto del usuario → se engancha al
+  // primer toque de la página (sirve el botón de la intro). Android no pide
+  // permiso y entra directo.
+  useEffect(() => {
+    if (reducedMotion || !isMobile || typeof DeviceOrientationEvent === 'undefined') return
+    let attached = false
+    const onTilt = (e) => {
+      if (e.gamma == null || e.beta == null) return
+      const clamp = (v) => Math.max(-1, Math.min(1, v))
+      // gamma: inclinación izquierda/derecha. beta: adelante/atrás; el punto
+      // neutro son ~60°, el ángulo en que se sostiene el teléfono al leer, para
+      // que el árbol esté de frente en la posición natural y no ya inclinado.
+      pointerRef.current.x = clamp(e.gamma / 38)
+      pointerRef.current.y = clamp((e.beta - 60) / 45)
+    }
+    const attach = () => {
+      if (attached) return
+      attached = true
+      window.addEventListener('deviceorientation', onTilt)
+    }
+    const request = () => {
+      const ask = DeviceOrientationEvent.requestPermission
+      if (typeof ask === 'function') {
+        ask().then((res) => res === 'granted' && attach()).catch(() => {})
+      } else {
+        attach()
+      }
+    }
+    request() // Android / navegadores sin permiso explícito
+    window.addEventListener('pointerdown', request, { once: true }) // iOS
+    return () => {
+      window.removeEventListener('deviceorientation', onTilt)
+      window.removeEventListener('pointerdown', request)
+    }
+  }, [reducedMotion, isMobile])
+
   const bloomRef = useRef()
   const frameloop = reducedMotion || !visible ? 'demand' : 'always'
 
   return (
     <div className="fixed inset-0 -z-10 pointer-events-none" aria-hidden="true" style={{ height: '100dvh' }}>
+      {/* dpr 1.75 en móvil: se ve nítido y pinta ~23 % menos píxeles que a 2 */}
       <Canvas
-        dpr={[1, isMobile ? 2 : 1.85]}
+        dpr={[1, isMobile ? 1.75 : 1.85]}
         camera={{ position: [0, 0.55, 1.75], fov: 42 }}
         gl={{
           antialias: true,
@@ -363,9 +433,14 @@ export default function TreeBackground({ reducedMotion }) {
           <Float speed={reducedMotion ? 0 : 0.7} rotationIntensity={0} floatIntensity={reducedMotion ? 0 : 0.15}>
             <LogoTree reducedMotion={reducedMotion} scrollRef={scrollRef} pointerRef={pointerRef} />
           </Float>
-          {!isMobile && <MicroDust reducedMotion={reducedMotion} />}
+          {/* Micro-polvo también en móvil, con menos motas y a media cadencia */}
+          <MicroDust
+            reducedMotion={reducedMotion}
+            count={isMobile ? 420 : 1100}
+            everyNthFrame={isMobile ? 2 : 1}
+          />
           {!reducedMotion && (
-            <Sparkles count={70} scale={[7, 9, 4]} size={1.4} speed={0.2} color="#dbe3f0" opacity={0.4} />
+            <Sparkles count={isMobile ? 36 : 70} scale={[7, 9, 4]} size={1.4} speed={0.2} color="#dbe3f0" opacity={0.4} />
           )}
           {isMobile ? (
             // iOS/WebKit (Safari y Chrome iOS) no genera bien el envMap desde una
