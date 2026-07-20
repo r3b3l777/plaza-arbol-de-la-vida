@@ -79,14 +79,14 @@ function MicroDust({ reducedMotion }) {
   )
 }
 
-function LogoTree({ reducedMotion, scrollRef }) {
+function LogoTree({ reducedMotion, scrollRef, pointerRef }) {
   const group = useRef()
   const inner = useRef()
   const { scene } = useGLTF(MODEL)
   const { viewport, camera } = useThree()
 
   // Clona la escena y aplica material cromo-gema (iridiscencia fuerte) + normales
-  const model = useMemo(() => {
+  const { model, aspect } = useMemo(() => {
     const s = scene.clone(true)
     // Acabado LUXURY con un toque DIAMANTE, consistente Safari/Chrome:
     // se evitan iridescence/anisotropy (extensiones KHR que Safari renderiza
@@ -135,11 +135,19 @@ function LogoTree({ reducedMotion, scrollRef }) {
     const wrap = new THREE.Group()
     wrap.add(s)
     wrap.scale.setScalar(k)
-    return wrap
+    // Proporción ancho/alto ya normalizada (alto = 1): sirve para encuadrar.
+    return { model: wrap, aspect: size.x / (size.y || 1) }
   }, [scene])
 
-  const fit = viewport.width < 6.5 ? Math.max(0.62, viewport.width / 6.8) : 1
-  const baseScale = 2.4 * fit
+  // Encuadre. En escritorio se conserva el tamaño de siempre (1.488). En
+  // pantallas angostas (iPhone en vertical) ese tamaño deja el árbol cortado
+  // por los lados, así que ahí se ajusta al ANCHO disponible para que entre
+  // completo. `viewport` está medido en el plano z=0 de la cámara.
+  const baseScale = Math.min(2.4 * 0.62, (viewport.width * 0.94) / (aspect || 1))
+  // Al reducirlo para que quepa a lo ancho, el árbol se iría al borde inferior
+  // del encuadre (la cámara mira desde arriba): se sube hacia el centro en la
+  // misma proporción en que se encogió.
+  const lift = Math.max(0, 2.4 * 0.62 - baseScale) * 0.36
 
   useFrame((state, delta) => {
     if (!group.current || !inner.current) return
@@ -159,7 +167,9 @@ function LogoTree({ reducedMotion, scrollRef }) {
     // media profundidad, vuelve al centro al formarse) + micro-vaivén de
     // "cámara en mano" que crece con la profundidad → vuelo, no travelling.
     const hand = live * (Math.sin(t * 0.9) * 0.011 + Math.sin(t * 1.7 + 2) * 0.005) * (0.35 + gem)
-    const camX = (Math.sin(zoom * Math.PI * 0.9) * 0.5 + hand) * (1 - reveal)
+    // Paralaje suave de cámara con el cursor (además del giro del modelo)
+    const camPar = live * pointerRef.current.x * 0.13
+    const camX = (Math.sin(zoom * Math.PI * 0.9) * 0.5 + hand) * (1 - reveal) + camPar
     camera.position.x += (camX - camera.position.x) * k * 0.9
 
     const handY = live * (Math.sin(t * 0.7 + 1) * 0.009 + Math.sin(t * 1.4) * 0.004) * (0.35 + gem)
@@ -180,10 +190,15 @@ function LogoTree({ reducedMotion, scrollRef }) {
     const idleY = live * Math.sin(t * 0.22) * (0.055 + 0.22 * gem)
     const idleX = live * Math.sin(t * 0.17 + 1.1) * 0.03
     const drift = live * Math.sin(t * 0.18) * 0.12
+    // Puntero: el canvas es `pointer-events: none`, así que `state.pointer`
+    // nunca se actualiza. El movimiento con el cursor viene de `pointerRef`,
+    // que se alimenta de un listener en la ventana (-1..1 en cada eje).
+    const px = pointerRef.current.x
+    const py = pointerRef.current.y
     const journeyY = (-0.35 + zoom * 0.5 + drift) * (1 - reveal)
-    const targetY = journeyY + idleY + state.pointer.x * 0.1
+    const targetY = journeyY + idleY + px * 0.32
     group.current.rotation.y += (targetY - group.current.rotation.y) * k
-    const targetX = (0.08 * (1 - zoom)) * (1 - reveal) + idleX - state.pointer.y * 0.04
+    const targetX = (0.08 * (1 - zoom)) * (1 - reveal) + idleX - py * 0.18
     group.current.rotation.x += (targetX - group.current.rotation.x) * k
     const targetZ = live * Math.sin(t * 0.42 + 0.6) * 0.02
     group.current.rotation.z += (targetZ - group.current.rotation.z) * k
@@ -197,7 +212,7 @@ function LogoTree({ reducedMotion, scrollRef }) {
 
   return (
     <group ref={group}>
-      <group ref={inner} scale={baseScale}>
+      <group ref={inner} scale={baseScale} position-y={lift}>
         <primitive object={model} />
       </group>
     </group>
@@ -291,6 +306,27 @@ export default function TreeBackground({ reducedMotion }) {
     }
   }, [])
 
+  // Cursor normalizado (-1..1). Se escucha en la VENTANA porque el canvas es
+  // `pointer-events: none` y nunca recibiría eventos por su cuenta.
+  const pointerRef = useRef({ x: 0, y: 0 })
+  useEffect(() => {
+    if (reducedMotion) return
+    const onMove = (e) => {
+      pointerRef.current.x = (e.clientX / window.innerWidth) * 2 - 1
+      pointerRef.current.y = (e.clientY / window.innerHeight) * 2 - 1
+    }
+    const onLeave = () => {
+      pointerRef.current.x = 0
+      pointerRef.current.y = 0
+    }
+    window.addEventListener('pointermove', onMove, { passive: true })
+    document.addEventListener('pointerleave', onLeave)
+    return () => {
+      window.removeEventListener('pointermove', onMove)
+      document.removeEventListener('pointerleave', onLeave)
+    }
+  }, [reducedMotion])
+
   const bloomRef = useRef()
   const frameloop = reducedMotion || !visible ? 'demand' : 'always'
 
@@ -325,7 +361,7 @@ export default function TreeBackground({ reducedMotion }) {
 
         <Suspense fallback={null}>
           <Float speed={reducedMotion ? 0 : 0.7} rotationIntensity={0} floatIntensity={reducedMotion ? 0 : 0.15}>
-            <LogoTree reducedMotion={reducedMotion} scrollRef={scrollRef} />
+            <LogoTree reducedMotion={reducedMotion} scrollRef={scrollRef} pointerRef={pointerRef} />
           </Float>
           {!isMobile && <MicroDust reducedMotion={reducedMotion} />}
           {!reducedMotion && (
