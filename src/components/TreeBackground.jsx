@@ -294,26 +294,6 @@ export default function TreeBackground({ reducedMotion }) {
   const bloomRef = useRef()
   const frameloop = reducedMotion || !visible ? 'demand' : 'always'
 
-  // En móvil / iOS el WebGL con material metálico + envMap no renderiza bien en
-  // Safari de iOS (Chrome iOS usa el mismo motor WebKit, por eso también falla).
-  // En lugar del 3D mostramos un telón estático con el árbol de la marca:
-  // se ve bien, carga al instante y no gasta batería.
-  if (isMobile) {
-    return (
-      <div className="fixed inset-0 -z-10 pointer-events-none" aria-hidden="true" style={{ height: '100dvh', backgroundColor: '#14181e' }}>
-        <img
-          src="/img/arbol-marca-blanco.png"
-          alt=""
-          loading="eager"
-          className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[80%] max-w-[440px] opacity-90"
-          style={{ filter: 'drop-shadow(0 12px 48px rgba(0,0,0,0.55))' }}
-        />
-        <div className="absolute inset-0 bg-[radial-gradient(120%_90%_at_50%_42%,rgba(214,205,183,0.10),transparent_60%)]" />
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,transparent_45%,rgba(15,18,23,0.65)_100%)]" />
-      </div>
-    )
-  }
-
   return (
     <div className="fixed inset-0 -z-10 pointer-events-none" aria-hidden="true" style={{ height: '100dvh' }}>
       <Canvas
@@ -351,13 +331,20 @@ export default function TreeBackground({ reducedMotion }) {
           {!reducedMotion && (
             <Sparkles count={70} scale={[7, 9, 4]} size={1.4} speed={0.2} color="#dbe3f0" opacity={0.4} />
           )}
-          <Environment resolution={128} environmentIntensity={1.0}>
-            <color attach="background" args={['#0b0e12']} />
-            <Lightformer intensity={3.2} form="rect" position={[0, 4, -3]} scale={[10, 4, 1]} color="#eaf1ff" />
-            <Lightformer intensity={2.2} form="rect" position={[-5, 1, 1]} rotation-y={Math.PI / 2} scale={[6, 6, 1]} color="#cdd8ea" />
-            <Lightformer intensity={2.7} form="rect" position={[5, 1, 1]} rotation-y={-Math.PI / 2} scale={[6, 6, 1]} color="#f6d38f" />
-            <Lightformer intensity={1.6} form="circle" position={[0, -3, 2]} scale={5} color="#9fb2cc" />
-          </Environment>
+          {isMobile ? (
+            // iOS/WebKit (Safari y Chrome iOS) no genera bien el envMap desde una
+            // escena (cube render target half-float) → el metal sale MATE. Un HDR
+            // por preset sí funciona en iOS y devuelve el brillo metálico.
+            <Environment preset="studio" environmentIntensity={1.2} />
+          ) : (
+            <Environment resolution={128} environmentIntensity={1.0}>
+              <color attach="background" args={['#0b0e12']} />
+              <Lightformer intensity={3.2} form="rect" position={[0, 4, -3]} scale={[10, 4, 1]} color="#eaf1ff" />
+              <Lightformer intensity={2.2} form="rect" position={[-5, 1, 1]} rotation-y={Math.PI / 2} scale={[6, 6, 1]} color="#cdd8ea" />
+              <Lightformer intensity={2.7} form="rect" position={[5, 1, 1]} rotation-y={-Math.PI / 2} scale={[6, 6, 1]} color="#f6d38f" />
+              <Lightformer intensity={1.6} form="circle" position={[0, -3, 2]} scale={5} color="#9fb2cc" />
+            </Environment>
+          )}
         </Suspense>
 
         {/* Post-procesado: bloom limpio (glow de joyería). Sin aberración
