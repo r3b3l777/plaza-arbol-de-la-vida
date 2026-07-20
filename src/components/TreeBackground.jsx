@@ -105,10 +105,10 @@ function LogoTree({ reducedMotion, scrollRef, pointerRef }) {
       sheenColor: new THREE.Color('#e2c087'), // sheen dorado suave
     })
     // Subdivisión (Loop) → muchos más polígonos: superficie ultra suave y
-    // detallada, clave en el zoom microscópico (sin facetas). 2 pasos en
-    // escritorio, 1 en móvil para cuidar el rendimiento.
-    const isSmall = typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches
-    const iters = isSmall ? 0 : 1 // 1 paso: suave y detallado sin trabar la carga
+    // detallada, clave en el zoom microscópico (sin facetas). Antes se saltaba
+    // en móvil y por eso el árbol se veía POLIGONAL en el iPhone mientras en
+    // Chrome salía liso; ahora es el mismo paso en ambos.
+    const iters = 1
     s.traverse((o) => {
       if (o.isMesh) {
         let g = o.geometry
@@ -333,7 +333,7 @@ export default function TreeBackground({ reducedMotion }) {
   return (
     <div className="fixed inset-0 -z-10 pointer-events-none" aria-hidden="true" style={{ height: '100dvh' }}>
       <Canvas
-        dpr={[1, isMobile ? 1.5 : 1.85]}
+        dpr={[1, isMobile ? 2 : 1.85]}
         camera={{ position: [0, 0.55, 1.75], fov: 42 }}
         gl={{
           antialias: true,
@@ -370,8 +370,13 @@ export default function TreeBackground({ reducedMotion }) {
           {isMobile ? (
             // iOS/WebKit (Safari y Chrome iOS) no genera bien el envMap desde una
             // escena (cube render target half-float) → el metal sale MATE. Un HDR
-            // por preset sí funciona en iOS y devuelve el brillo metálico.
-            <Environment preset="studio" environmentIntensity={1.2} />
+            // sí funciona en iOS y devuelve el brillo metálico.
+            //
+            // El HDR se sirve desde ESTE dominio: `preset="studio"` lo bajaba de
+            // raw.githack.com (1.7 MB, CDN de terceros con límite de tasa), así
+            // que en el teléfono el árbol se quedaba mate hasta que llegara —o
+            // para siempre si fallaba.
+            <Environment files="/hdr/studio-small.hdr" environmentIntensity={1.2} />
           ) : (
             <Environment resolution={128} environmentIntensity={1.0}>
               <color attach="background" args={['#0b0e12']} />
@@ -384,17 +389,13 @@ export default function TreeBackground({ reducedMotion }) {
         </Suspense>
 
         {/* Post-procesado: bloom limpio (glow de joyería). Sin aberración
-            cromática. En móvil se OMITE por completo (la viñeta ya existe en
-            DOM y el bloom es lo más caro en GPU de teléfono). */}
-        {!isMobile && (
-          <>
-            <EffectComposer disableNormalPass multisampling={4}>
-              <Bloom ref={bloomRef} mipmapBlur intensity={0.28} luminanceThreshold={0.8} luminanceSmoothing={0.2} radius={0.62} />
-              <Vignette eskil={false} offset={0.26} darkness={0.74} />
-            </EffectComposer>
-            <FXDriver scrollRef={scrollRef} bloomRef={bloomRef} />
-          </>
-        )}
+            cromática. También en móvil —sin él el árbol se veía plano frente a
+            Chrome—, pero sin multisampling y con la viñeta que ya está en DOM. */}
+        <EffectComposer disableNormalPass multisampling={isMobile ? 0 : 4}>
+          <Bloom ref={bloomRef} mipmapBlur intensity={0.28} luminanceThreshold={0.8} luminanceSmoothing={0.2} radius={0.62} />
+          <Vignette eskil={false} offset={0.26} darkness={0.74} />
+        </EffectComposer>
+        <FXDriver scrollRef={scrollRef} bloomRef={bloomRef} />
       </Canvas>
 
       {/* Realce en DOM: brillo cálido + viñeta para legibilidad del contenido */}
