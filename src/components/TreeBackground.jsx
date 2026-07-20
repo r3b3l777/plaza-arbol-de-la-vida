@@ -1,4 +1,4 @@
-import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { Environment, Float, Lightformer, Sparkles, useGLTF } from '@react-three/drei'
 import { EffectComposer, Bloom, Vignette } from '@react-three/postprocessing'
@@ -309,6 +309,21 @@ function LuxuryLights({ scrollRef }) {
   )
 }
 
+// Avisa en el primer frame REALMENTE pintado. Vive DENTRO del <Suspense> del
+// modelo, así que solo se monta cuando el GLB ya resolvió.
+// Se dispara en el primer frame a propósito: con reduced-motion el frameloop
+// es 'demand' y podría no haber un segundo frame, lo que dejaría el canvas
+// invisible para siempre. El fade de 900 ms absorbe la compilación de shaders.
+function ReadySignal({ onReady }) {
+  const done = useRef(false)
+  useFrame(() => {
+    if (done.current) return
+    done.current = true
+    onReady()
+  })
+  return null
+}
+
 // Anima el post-procesado con la profundidad del zoom: más bloom y aberración
 // cromática cuando el zoom es microscópico → sensación de lente de cine / gema.
 // Solo modula el bloom con la profundidad (glow contenido). Sin aberración
@@ -324,6 +339,47 @@ function FXDriver({ scrollRef, bloomRef, isMobile }) {
   })
   return null
 }
+
+/**
+ * Post-procesado: bloom limpio (glow de joyería). Sin aberración cromática.
+ * También en móvil —sin él el árbol se veía plano frente a Chrome—, pero sin
+ * multisampling y con la viñeta que ya está en DOM.
+ *
+ * Va MEMOIZADO a propósito. `@react-three/postprocessing` calcula los args de
+ * cada efecto con `useMemo(..., [JSON.stringify(props)])`, y en React 19 `ref`
+ * viaja como una prop más. En el primer render `bloomRef.current` es null y no
+ * pasa nada, pero en CUALQUIER re-render posterior ese stringify se encuentra
+ * el BloomEffect ya construido, que es una estructura circular, y lanza
+ * "Converting circular structure to JSON" — una excepción no capturada que
+ * tumba todo el árbol de React (la página se queda en blanco).
+ *
+ * Pasaba de verdad: bastaba con cambiar de pestaña y volver, porque
+ * `setVisible` re-renderiza este componente. Al aislar los efectos aquí con
+ * props estables (tres refs y un booleano), React se salta el re-render y el
+ * stringify no vuelve a ejecutarse nunca.
+ */
+const PostFX = memo(function PostFX({ bloomRef, scrollRef, isMobile }) {
+  return (
+    <>
+      <EffectComposer disableNormalPass multisampling={isMobile ? 0 : 4}>
+        {/* En móvil el bloom se calcula a la mitad de resolución: es un
+            desenfoque, no tiene detalle que perder, y ahorra la mayor parte
+            de su costo de relleno. */}
+        <Bloom
+          ref={bloomRef}
+          mipmapBlur
+          intensity={0.28}
+          luminanceThreshold={0.8}
+          luminanceSmoothing={0.2}
+          radius={0.62}
+          resolutionScale={isMobile ? 0.5 : 1}
+        />
+        <Vignette eskil={false} offset={0.26} darkness={0.74} />
+      </EffectComposer>
+      <FXDriver scrollRef={scrollRef} bloomRef={bloomRef} isMobile={isMobile} />
+    </>
+  )
+})
 
 export default function TreeBackground({ reducedMotion }) {
   const [isMobile] = useState(
@@ -443,8 +499,29 @@ export default function TreeBackground({ reducedMotion }) {
   const bloomRef = useRef()
   const frameloop = reducedMotion || !visible ? 'demand' : 'always'
 
+  // Fade del telón estático al 3D. El canvas pinta el MISMO color de fondo
+  // (#14181e) que StaticBackdrop, así que lo único que aparece es el árbol.
+  //
+  // Se toca el estilo por ref en vez de con estado: un setState aquí
+  // re-renderizaría el componente, y ese re-render es justo lo que hace
+  // explotar a postprocessing (ver PostFX). Además así el fade no cuesta ni
+  // un render de React.
+  const shellRef = useRef(null)
+  const onReady = useCallback(() => {
+    if (shellRef.current) shellRef.current.style.opacity = '1'
+  }, [])
+
   return (
-    <div className="fixed inset-0 -z-10 pointer-events-none" aria-hidden="true" style={{ height: '100dvh' }}>
+    <div
+      ref={shellRef}
+      className="fixed inset-0 -z-10 pointer-events-none"
+      aria-hidden="true"
+      style={{
+        height: '100dvh',
+        opacity: 0,
+        transition: reducedMotion ? 'none' : 'opacity 900ms cubic-bezier(0.22, 1, 0.36, 1)',
+      }}
+    >
       {/* dpr 1.75 en móvil: se ve nítido y pinta ~23 % menos píxeles que a 2 */}
       <Canvas
         dpr={[1, isMobile ? 1.75 : 1.85]}
@@ -481,6 +558,7 @@ export default function TreeBackground({ reducedMotion }) {
             <LogoTree reducedMotion={reducedMotion} scrollRef={scrollRef} pointerRef={pointerRef} isMobile={isMobile} />
           </Float>
           {/* Micro-polvo también en móvil, con menos motas y a media cadencia */}
+          <ReadySignal onReady={onReady} />
           <MicroDust
             reducedMotion={reducedMotion}
             count={isMobile ? 420 : 1100}
@@ -510,25 +588,7 @@ export default function TreeBackground({ reducedMotion }) {
           )}
         </Suspense>
 
-        {/* Post-procesado: bloom limpio (glow de joyería). Sin aberración
-            cromática. También en móvil —sin él el árbol se veía plano frente a
-            Chrome—, pero sin multisampling y con la viñeta que ya está en DOM. */}
-        <EffectComposer disableNormalPass multisampling={isMobile ? 0 : 4}>
-          {/* En móvil el bloom se calcula a la mitad de resolución: es un
-              desenfoque, no tiene detalle que perder, y ahorra la mayor parte
-              de su costo de relleno. */}
-          <Bloom
-            ref={bloomRef}
-            mipmapBlur
-            intensity={0.28}
-            luminanceThreshold={0.8}
-            luminanceSmoothing={0.2}
-            radius={0.62}
-            resolutionScale={isMobile ? 0.5 : 1}
-          />
-          <Vignette eskil={false} offset={0.26} darkness={0.74} />
-        </EffectComposer>
-        <FXDriver scrollRef={scrollRef} bloomRef={bloomRef} isMobile={isMobile} />
+        <PostFX bloomRef={bloomRef} scrollRef={scrollRef} isMobile={isMobile} />
       </Canvas>
 
       {/* Realce en DOM: brillo cálido + viñeta para legibilidad del contenido */}

@@ -32,7 +32,10 @@ export default function Gallery() {
                 <img
                   src={big.src}
                   alt={big.alt}
+                  width={big.w}
+                  height={big.h}
                   loading="lazy"
+                  decoding="async"
                   className="absolute inset-0 h-full w-full object-cover transition-transform duration-700 group-hover:scale-[1.05]"
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-ink/70 via-transparent to-transparent" />
@@ -48,7 +51,10 @@ export default function Gallery() {
                 <img
                   src={g.src}
                   alt={g.alt}
+                  width={g.w}
+                  height={g.h}
                   loading="lazy"
+                  decoding="async"
                   className="absolute inset-0 h-full w-full object-cover transition-transform duration-700 group-hover:scale-[1.05]"
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-ink/70 via-transparent to-transparent" />

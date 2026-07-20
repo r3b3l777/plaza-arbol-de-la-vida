@@ -82,10 +82,10 @@ export default function Navbar() {
       <nav className="mx-auto max-w-7xl flex items-center justify-between px-5 sm:px-8 h-16 sm:h-20">
         <a href="#top" className="flex min-w-0 items-center gap-2.5 sm:gap-3 cursor-pointer group" aria-label="Plaza Árbol de la Vida — inicio">
           <img
-            src="/img/logo-icon-light.png"
+            src="/img/logo-icon-light.webp"
             alt=""
-            width="339"
-            height="340"
+            width="120"
+            height="121"
             style={{ transform: scrolled ? 'scale(0.9)' : 'scale(1)' }}
             className="h-9 w-9 sm:h-10 sm:w-10 shrink-0 rounded-lg origin-left transition-[transform,opacity] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] group-hover:opacity-80 motion-reduce:!transform-none"
           />

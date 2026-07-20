@@ -1,7 +1,7 @@
 import { motion, useScroll, useTransform } from 'framer-motion'
 import { useRef } from 'react'
 import Reveal from './Reveal'
-import { LOBBY_PHOTO } from '../data/site'
+import { LOBBY_PHOTO, LOBBY_PHOTO_SIZE } from '../data/site'
 
 export default function Culture() {
   const ref = useRef(null)
@@ -19,7 +19,10 @@ export default function Culture() {
               src={LOBBY_PHOTO}
               alt="Muro de concreto con el logotipo de Plaza Árbol de la Vida"
               style={{ scale, y }}
+              width={LOBBY_PHOTO_SIZE.w}
+              height={LOBBY_PHOTO_SIZE.h}
               loading="lazy"
+              decoding="async"
               className="absolute inset-0 h-full w-full object-cover"
             />
             <div className="absolute inset-0 bg-gradient-to-t from-carbon/75 via-transparent to-transparent" />

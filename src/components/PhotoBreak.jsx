@@ -1,6 +1,6 @@
 import { motion, useMotionTemplate, useScroll, useTransform } from 'framer-motion'
 import { useRef } from 'react'
-import { HERO_PHOTO } from '../data/site'
+import { HERO_PHOTO, HERO_PHOTO_SIZE, HERO_PHOTO_SRCSET } from '../data/site'
 import useReducedMotion from '../hooks/useReducedMotion'
 
 /**
@@ -32,7 +32,11 @@ export default function PhotoBreak() {
       <section className="relative h-[70vh] min-h-105 overflow-hidden">
         <img
           src={HERO_PHOTO}
+          srcSet={HERO_PHOTO_SRCSET}
+          sizes="100vw"
           alt="Plaza Árbol de la Vida al atardecer"
+          width={HERO_PHOTO_SIZE.w}
+          height={HERO_PHOTO_SIZE.h}
           loading="lazy"
           decoding="async"
           className="absolute inset-0 h-full w-full object-cover"
@@ -69,8 +73,12 @@ export default function PhotoBreak() {
         <motion.div style={{ clipPath }} className="absolute inset-0 will-change-[clip-path]">
           <motion.img
             src={HERO_PHOTO}
+            srcSet={HERO_PHOTO_SRCSET}
+            sizes="100vw"
             alt="Plaza Árbol de la Vida al atardecer"
-            /* 820 KB a media página: se difiere y se decodifica fuera del hilo
+            width={HERO_PHOTO_SIZE.w}
+            height={HERO_PHOTO_SIZE.h}
+            /* A media página: se difiere y se decodifica fuera del hilo
                principal para que su llegada no corte el scroll */
             loading="lazy"
             decoding="async"

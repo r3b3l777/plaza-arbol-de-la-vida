@@ -8,10 +8,10 @@ export default function Footer() {
           <div className="text-center md:text-left">
             <div className="inline-flex items-center justify-center rounded-2xl bg-blanco px-6 py-4">
               <img
-                src="/img/logo-lockup-dark.png"
+                src="/img/logo-lockup-dark.webp"
                 alt="Plaza Árbol de la Vida · Metepec"
-                width="1184"
-                height="578"
+                width="400"
+                height="196"
                 className="h-20 w-auto"
                 loading="lazy"
               />

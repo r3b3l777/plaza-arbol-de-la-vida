@@ -17,6 +17,7 @@ import SoundToggle from './components/SoundToggle'
 import Intro from './components/Intro'
 import CustomCursor from './components/CustomCursor'
 import CinematicOverlay from './components/CinematicOverlay'
+import StaticBackdrop from './components/StaticBackdrop'
 import useReducedMotion from './hooks/useReducedMotion'
 import useLenis from './hooks/useLenis'
 
@@ -29,21 +30,42 @@ function App() {
   // Smooth scroll con inercia en todo el sitio (nativo si reduced-motion)
   useLenis(!reducedMotion)
 
-  // Montamos el árbol 3D (pesado: subdivisión + shaders + post) un instante
-  // DESPUÉS del primer render → la entrada de la intro corre fluida y el 3D se
-  // inicializa detrás del overlay, listo cuando la cortina se levanta.
+  // El 3D (chunk de three.js + GLB + HDR) no se toca hasta que la página ya
+  // está pintada e interactiva. Antes se montaba con un setTimeout fijo y el
+  // GLB además se precargaba desde el <head>, así que competía con la primera
+  // pintura. Ahora arranca en el primer hueco libre del hilo principal, o en
+  // cuanto el usuario entra por la intro — lo que ocurra primero.
   const [mount3D, setMount3D] = useState(false)
   useEffect(() => {
-    // 900ms: después de que el texto de la intro aterrizó (~1.2s de animación
-    // ligera) pero antes de que la cortina pueda levantarse (~2.5s) — el init
-    // del 3D nunca compite con la animación visible.
-    const id = setTimeout(() => setMount3D(true), 900)
-    return () => clearTimeout(id)
+    let done = false
+    const start = () => {
+      if (done) return
+      done = true
+      setMount3D(true)
+    }
+    // requestIdleCallback = "cuando el hilo principal esté libre"; el timeout
+    // es la red de seguridad para navegadores ocupados (y Safari, que no lo
+    // implementa).
+    const ric = window.requestIdleCallback
+    const idle = ric ? ric(start, { timeout: 2000 }) : null
+    const timer = setTimeout(start, ric ? 2500 : 800)
+    // La intro emite este evento al entrar (con o sin sonido).
+    window.addEventListener('plaza:enter', start, { once: true })
+    return () => {
+      done = true
+      clearTimeout(timer)
+      if (idle != null && window.cancelIdleCallback) window.cancelIdleCallback(idle)
+      window.removeEventListener('plaza:enter', start)
+    }
   }, [])
 
   return (
     <>
-      {/* Árbol de la Vida 3D — telón continuo fijo detrás de toda la página */}
+      {/* Telón estático de marca: se ve desde el primer frame, sin descargas */}
+      <StaticBackdrop />
+
+      {/* Árbol de la Vida 3D — telón continuo fijo detrás de toda la página.
+          Aparece con un fade sobre el telón estático al estar listo. */}
       {mount3D && (
         <Suspense fallback={null}>
           <TreeBackground reducedMotion={reducedMotion} />

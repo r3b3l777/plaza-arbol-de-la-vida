@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Reveal from './Reveal'
-import { LEASE_EMAIL, METAL_TEXTURE, METAL_TEXTURE_VIDEO, WHATSAPP_URL } from '../data/site'
+import { LEASE_EMAIL, METAL_TEXTURE, METAL_TEXTURE_SIZE, METAL_TEXTURE_VIDEO, WHATSAPP_URL } from '../data/site'
 import useReducedMotion from '../hooks/useReducedMotion'
 
 const POINTS = [
@@ -15,6 +15,27 @@ const FIELD_CLS =
 export default function Lease() {
   const [status, setStatus] = useState('idle') // idle | sending | success | error
   const reducedMotion = useReducedMotion()
+
+  // El mp4 de la textura pesa 1.35 MB y vive a media página. `autoPlay` haría
+  // que el navegador lo empezara a bajar aunque esté fuera de pantalla, así que
+  // el `src` no se asigna hasta que la sección se acerca al viewport. Hasta
+  // entonces se ve el póster, que es la misma imagen.
+  const shellRef = useRef(null)
+  const [videoNear, setVideoNear] = useState(false)
+  useEffect(() => {
+    if (reducedMotion || !shellRef.current) return
+    const io = new IntersectionObserver(
+      ([e]) => {
+        if (e.isIntersecting) {
+          setVideoNear(true)
+          io.disconnect()
+        }
+      },
+      { rootMargin: '200px' }
+    )
+    io.observe(shellRef.current)
+    return () => io.disconnect()
+  }, [reducedMotion])
 
   async function onSubmit(e) {
     e.preventDefault()
@@ -50,7 +71,7 @@ export default function Lease() {
       {/* Cifra protagonista del local disponible */}
       <div className="mx-auto max-w-7xl px-6 sm:px-8 mb-20">
         <Reveal>
-          <div className="relative overflow-hidden flex flex-col lg:flex-row items-center gap-8 lg:gap-14 rounded-3xl bg-carbon p-8 sm:p-12 shadow-[0_35px_70px_-35px_rgba(32,37,45,0.6)]">
+          <div ref={shellRef} className="relative overflow-hidden flex flex-col lg:flex-row items-center gap-8 lg:gap-14 rounded-3xl bg-carbon p-8 sm:p-12 shadow-[0_35px_70px_-35px_rgba(32,37,45,0.6)]">
             {/* Textura de metal líquido (IA) animada en video — profundidad
                 viva bajo el contenido. Con reduced-motion, imagen estática. */}
             {reducedMotion ? (
@@ -58,13 +79,18 @@ export default function Lease() {
                 src={METAL_TEXTURE}
                 alt=""
                 aria-hidden="true"
+                width={METAL_TEXTURE_SIZE.w}
+                height={METAL_TEXTURE_SIZE.h}
                 loading="lazy"
+                decoding="async"
                 className="absolute inset-0 h-full w-full object-cover opacity-25 pointer-events-none"
               />
             ) : (
               <video
-                src={METAL_TEXTURE_VIDEO}
+                src={videoNear ? METAL_TEXTURE_VIDEO : undefined}
                 poster={METAL_TEXTURE}
+                width={METAL_TEXTURE_SIZE.w}
+                height={METAL_TEXTURE_SIZE.h}
                 autoPlay
                 muted
                 loop

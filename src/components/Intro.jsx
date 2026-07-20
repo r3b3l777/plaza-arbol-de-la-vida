@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { ensureAudio, playEntrySequence } from '../lib/brandAudio'
+import { playEntrySequence } from '../lib/brandAudio'
+import { BRAND_TREE, BRAND_TREE_SIZE } from '../data/site'
 
 /**
  * Intro cinematográfica de marca. Se muestra en cada carga/refresh: el árbol
@@ -27,15 +28,16 @@ export default function Intro({ reducedMotion }) {
     if (dismissedRef.current) return
     dismissedRef.current = true
     if (withSound) playEntrySequence()
+    // Señal para que App monte el árbol 3D ya mismo si aún no lo hizo.
+    window.dispatchEvent(new Event('plaza:enter'))
     setOpen(false)
   }, [])
 
-  // Marca la animación como lista para invitar a entrar. Mientras corre, se
-  // pre-cargan los buffers de audio (sin reproducir: la política de autoplay
-  // lo permite) → al pulsar "Entrar con sonido" el arranque es instantáneo.
+  // Marca la animación como lista para invitar a entrar. El audio ya NO se
+  // pre-carga aquí: eran ~688 KB compitiendo con la primera pintura. Los mp3
+  // empiezan a bajar en el gesto de "Entrar con sonido" (ver brandAudio).
   useEffect(() => {
     if (!open) return
-    ensureAudio()
     const t = setTimeout(() => setReady(true), 1450)
     return () => clearTimeout(t)
   }, [open])
@@ -88,7 +90,15 @@ export default function Intro({ reducedMotion }) {
               animate={{ opacity: 1, scale: 1, filter: 'blur(0px)' }}
               transition={{ duration: 0.85, ease: [0.22, 1, 0.36, 1] }}
             >
-              <img src="/img/arbol-marca-blanco.png" alt="" className="intro-tree" draggable="false" />
+              <img
+                src={BRAND_TREE}
+                alt=""
+                width={BRAND_TREE_SIZE.w}
+                height={BRAND_TREE_SIZE.h}
+                className="intro-tree"
+                draggable="false"
+                fetchPriority="high"
+              />
               <span className="intro-sheen" aria-hidden="true" />
             </motion.div>
 

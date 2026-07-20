@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import Reveal from './Reveal'
-import { TENANTS } from '../data/site'
+import { TENANTS, TENANT_LOGO_SIZE } from '../data/site'
 
 export default function Tenants() {
   const trackRef = useRef(null)
@@ -90,7 +90,10 @@ export default function Tenants() {
                 <img
                   src={t.img}
                   alt={t.name}
+                  width={TENANT_LOGO_SIZE.w}
+                  height={TENANT_LOGO_SIZE.h}
                   loading="lazy"
+                  decoding="async"
                   className="max-h-full max-w-full object-contain transition-transform duration-500 group-hover:scale-[1.05]"
                 />
               </div>

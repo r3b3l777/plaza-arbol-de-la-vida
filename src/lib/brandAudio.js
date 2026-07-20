@@ -10,6 +10,10 @@ import { useEffect, useState } from 'react'
  * Nada se reproduce sin un gesto del usuario (política de autoplay). El estado
  * vive fuera de React para sobrevivir a la intro y alimentar el toggle
  * flotante; useSoundState() lo puentea a React.
+ *
+ * Los cuatro mp3 suman ~688 KB y NO se descargan al montar: `preload = 'none'`
+ * hace que cada uno empiece a bajar en su primer play(), es decir, solo si el
+ * usuario elige "Entrar con sonido" o activa el toggle flotante.
  */
 const AMBIENT_SRC = '/audio/ambient-plaza.mp3'
 const SHIMMER_SRC = '/audio/shimmer.mp3'
@@ -48,26 +52,26 @@ export function ensureAudio() {
     const a = new Audio(AMBIENT_SRC)
     a.loop = true
     a.volume = 0
-    a.preload = 'auto'
+    a.preload = 'none'
     audioStore.ambient = a
   }
   if (!audioStore.shimmer) {
     const sh = new Audio(SHIMMER_SRC)
     sh.loop = true
     sh.volume = 0
-    sh.preload = 'auto'
+    sh.preload = 'none'
     audioStore.shimmer = sh
   }
   if (!audioStore.vo) {
     const v = new Audio(VO_SRC)
     v.volume = 0.92
-    v.preload = 'auto'
+    v.preload = 'none'
     audioStore.vo = v
   }
   if (!audioStore.riser) {
     const r = new Audio(RISER_SRC)
     r.volume = 0.42
-    r.preload = 'auto'
+    r.preload = 'none'
     audioStore.riser = r
   }
 }
