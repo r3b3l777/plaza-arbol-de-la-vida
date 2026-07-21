@@ -698,3 +698,14 @@ html.lenis body {
   .cta-avail::before { animation: none; opacity: 0.625; }
   .cta-avail-dot { animation: none; }
 }
+
+
+/* Respiración del fondo pre-renderizado del móvil. Es transform puro: lo hace
+   el compositor, no repinta ni un píxel. */
+@keyframes seq-vive {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.018); }
+}
+@media (prefers-reduced-motion: reduce) {
+  @keyframes seq-vive { 0%, 100% { transform: none; } }
+}

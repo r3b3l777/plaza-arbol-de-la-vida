@@ -21,6 +21,10 @@ const PostFX = lazy(() => import('./PostFX'))
 
 const MODEL = '/models/arbol-logo.glb'
 
+// Modo captura: congela el tiempo para pre-renderizar la secuencia del móvil.
+const CAPTURA = typeof window !== 'undefined' &&
+  new URLSearchParams(window.location.search).has('capture')
+
 /**
  * NIVEL DE CALIDAD DEL 3D.
  *
@@ -113,6 +117,14 @@ function MicroDust({ reducedMotion, count = 1100, everyNthFrame = 1 }) {
 }
 
 function LogoTree({ reducedMotion, scrollRef, pointerRef, isMobile, nivel, onGeometryReady }) {
+  // En modo captura se congela TODO lo que depende del tiempo (respiración,
+  // vaivén de cámara en mano, deriva del turntable). Si no, cada fotograma
+  // saldría con un balanceo distinto y la secuencia pre-renderizada temblaría
+  // al pasar de uno a otro. Se evalúa una sola vez, no por frame.
+  const congelado = useRef(
+    typeof window !== 'undefined' &&
+    new URLSearchParams(window.location.search).has('capture')
+  )
   const group = useRef()
   const inner = useRef()
   const { scene } = useGLTF(MODEL)
@@ -326,11 +338,18 @@ function LogoTree({ reducedMotion, scrollRef, pointerRef, isMobile, nivel, onGeo
     const p = scrollRef.current
     const k = 1 - Math.pow(0.0022, delta)
     const { zoom, reveal, gem } = phases(p)
-    const live = reducedMotion ? 0 : 1
+    const live = reducedMotion || congelado.current ? 0 : 1
 
     // === CÁMARA — vuelo cinematográfico ===
     // Dolly de acercamiento (microscópico) y pull-back de revelación
-    const zIn = 1.75 - zoom * 1.42 //  1.75 (lejos) → 0.33 (microscópico)
+    // Profundidad del viaje. En pantallas ANGOSTAS el recorrido se acorta:
+    // ahí el árbol se encuadra más pequeño (`baseScale` depende del ancho), así
+    // que con el recorrido largo la cámara lo rebasaba y se quedaba mirando el
+    // vacío — medido: 16 de 40 fotogramas del recorrido salían SIN árbol, el
+    // 40 % del scroll con el fondo desierto. Era el "se pierde parte del
+    // modelo" que se reportaba, no un fallo de carga.
+    const hondo = isMobile ? 0.80 : 1.42
+    const zIn = 1.75 - zoom * hondo //  1.75 (lejos) → 0.33 escritorio / 0.95 móvil
     const zCam = zIn * (1 - reveal) + 3.35 * reveal
     camera.position.z += (zCam - camera.position.z) * k * 0.9
 
@@ -344,9 +363,9 @@ function LogoTree({ reducedMotion, scrollRef, pointerRef, isMobile, nivel, onGeo
     camera.position.x += (camX - camera.position.x) * k * 0.9
 
     const handY = live * (Math.sin(t * 0.7 + 1) * 0.009 + Math.sin(t * 1.4) * 0.004) * (0.35 + gem)
-    const travelY = (0.55 - zoom * 1.15 + handY) * (1 - reveal)
+    const travelY = (0.55 - zoom * (isMobile ? 0.62 : 1.15) + handY) * (1 - reveal)
     camera.position.y += (travelY - camera.position.y) * k * 0.9
-    const lookY = (0.35 - zoom * 0.95) * (1 - reveal)
+    const lookY = (0.35 - zoom * (isMobile ? 0.50 : 0.95)) * (1 - reveal)
     camera.lookAt(0, lookY, 0)
 
     // Dolly-zoom sutil (vértigo Hitchcock): el FOV se abre en lo más profundo
@@ -710,7 +729,7 @@ export default function TreeBackground({ reducedMotion }) {
         {nivel >= 1 && !reducedMotion && <LuxuryLights scrollRef={scrollRef} />}
 
         <Suspense fallback={null}>
-          <Float speed={reducedMotion ? 0 : 0.7} rotationIntensity={0} floatIntensity={reducedMotion ? 0 : 0.15}>
+          <Float speed={reducedMotion || CAPTURA ? 0 : 0.7} rotationIntensity={0} floatIntensity={reducedMotion || CAPTURA ? 0 : 0.15}>
             <LogoTree reducedMotion={reducedMotion} scrollRef={scrollRef} pointerRef={pointerRef} isMobile={isMobile} nivel={nivel} onGeometryReady={onGeometryReady} />
           </Float>
           {/* Micro-polvo también en móvil, con menos motas y a media cadencia */}

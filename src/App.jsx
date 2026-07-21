@@ -25,6 +25,12 @@ import useLenis from './hooks/useLenis'
 // three.js pesa ~1 MB: se separa en su propio chunk y carga en paralelo,
 // por debajo del contenido, sin bloquear el primer render.
 const TreeBackground = lazy(() => import('./components/TreeBackground'))
+// Móvil no ejecuta el 3D: reproduce el MISMO recorrido pre-renderizado a
+// calidad de escritorio. Se decide aquí para que el chunk de three.js ni
+// siquiera se descargue en el teléfono.
+const TreeSequence = lazy(() => import('./components/TreeSequence'))
+const ES_MOVIL = typeof window !== 'undefined' &&
+  window.matchMedia('(max-width: 767px)').matches
 
 // Interruptores de diagnóstico, solo por URL:
 //   ?no3d=1   monta la página SIN el árbol 3D  → aísla si el 3D es la causa
@@ -61,10 +67,9 @@ function App() {
     // el usuario entra, ya están en la caché HTTP y el componente los encuentra
     // servidos en vez de empezar a pedirlos.
     // El HDR solo lo usa la ruta móvil — escritorio ilumina con Lightformers.
-    const assets = ['/models/arbol-logo.glb']
-    if (window.matchMedia('(max-width: 767px)').matches) {
-      assets.push('/hdr/studio-small.hdr')
-    }
+    const assets = ES_MOVIL
+      ? ['/seq/00.webp'] // móvil: el primer fotograma, para que aparezca ya
+      : ['/models/arbol-logo.glb']
     for (const u of assets) {
       // Se consume el cuerpo: si no, la respuesta no termina de entrar en caché.
       // Prioridad baja para no competir con la primera pintura.
@@ -98,7 +103,9 @@ function App() {
           Aparece con un fade sobre el telón estático al estar listo. */}
       {mount3D && !SIN_3D && (
         <Suspense fallback={null}>
-          <TreeBackground reducedMotion={reducedMotion} />
+          {ES_MOVIL
+            ? <TreeSequence reducedMotion={reducedMotion} />
+            : <TreeBackground reducedMotion={reducedMotion} />}
         </Suspense>
       )}
 
