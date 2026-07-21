@@ -228,7 +228,7 @@ function LogoTree({ reducedMotion, scrollRef, pointerRef, isMobile, nivel, onGeo
   const { viewport, camera } = useThree()
 
   // Clona la escena y aplica material cromo-gema (iridiscencia fuerte) + normales
-  const { model, aspect, mat, peltre, oro, jobs } = useMemo(() => {
+  const { model, aspect, mat, peltre, oro } = useMemo(() => {
     const s = scene.clone(true)
     // Acabado LUXURY con un toque DIAMANTE, consistente Safari/Chrome:
     // se evitan iridescence/anisotropy (extensiones KHR que Safari renderiza
@@ -242,12 +242,15 @@ function LogoTree({ reducedMotion, scrollRef, pointerRef, isMobile, nivel, onGeo
       ? new THREE.MeshStandardMaterial({
           color: '#c4cbd6',
           metalness: 0.9,
+          flatShading: true,
           roughness: 0.28,
           envMapIntensity: 1.6,
         })
       : new THREE.MeshPhysicalMaterial({
           color: '#c4cbd6',
           metalness: 0.9,
+          // Normales por cara derivadas en la GPU: el GLB no las trae.
+          flatShading: true,
           // El teléfono reflejaba DEMASIADO. No es el mismo material viéndose
           // distinto: es que las dos rutas se iluminan distinto. Escritorio usa
           // Lightformers art-directed (tiras concretas, colocadas a mano);
@@ -273,42 +276,23 @@ function LogoTree({ reducedMotion, scrollRef, pointerRef, isMobile, nivel, onGeo
     // detallada, clave en el zoom microscópico (sin facetas). Sin ella el árbol
     // se ve POLIGONAL, así que sigue haciéndose — pero YA NO AQUÍ.
     //
-    // Medido sobre esta malla (5.052 → 34.784 triángulos): ~200 ms en un Mac,
-    // ~700 ms en un iPhone. Hacerlo en el hilo principal congelaba la página
-    // ese tiempo entero: sin scroll, sin pintar, y sin árbol hasta el final.
-    // Ahora se monta al instante la malla BASE y un worker devuelve la versión
-    // subdividida cuando la tiene (ver `jobs` y el efecto de abajo).
+    // La malla del GLB YA VIENE SUBDIVIDIDA. Antes se subdividía aquí, en el
+    // aparato: `LoopSubdivision` sobre 5.052 → 34.784 triángulos, ~200 ms en un
+    // Mac y ~700 ms en un iPhone. Corría en un worker para no congelar la
+    // página, pero el árbol no se podía mostrar hasta que terminaba — y desde
+    // que la intro espera al 3D, eso era tiempo del usuario mirando la
+    // animación de entrada.
     //
-    // La base va sin índice + `computeVertexNormals` para que tenga el MISMO
-    // carácter de sombreado plano que el resultado final, solo más basta: al
-    // llegar el relevo solo se afina la superficie, no cambia la iluminación.
-    const jobs = []
+    // Ahora se hornea en tiempo de compilación con
+    // `scripts/hornear-subdivision.mjs`. El teléfono solo sube a la GPU una
+    // malla terminada. Cuesta 66 KB más de descarga (56 → 122 KB) y ahorra el
+    // cálculo entero.
+    //
+    // El GLB tampoco trae normales, y es a propósito: el acabado es FACETADO
+    // (una normal por cara), que es exactamente lo que `flatShading` deriva en
+    // la GPU. Enviarlas sería duplicar datos e impediría soldar la malla.
     s.traverse((o) => {
-      if (o.isMesh) {
-        const src = o.geometry
-        if (nivel === 0) {
-          // Sin subdividir. Y no se ve facetado porque las normales salen de la
-          // malla INDEXADA: computeVertexNormals promedia la normal de las caras
-          // que comparten cada vértice y la superficie se sombrea suave. La
-          // versión facetada es la misma malla con normales PLANAS (una por
-          // cara), que es lo que produce toNonIndexed(). Coste cero.
-          const g = src.clone()
-          g.computeVertexNormals()
-          o.geometry = g
-        } else {
-          // Copias propias: los búferes no pueden ser los del GLTF cacheado,
-          // que se reutiliza entre montajes.
-          jobs.push({
-            mesh: o,
-            position: new Float32Array(src.attributes.position.array),
-            index: src.index ? new Uint32Array(src.index.array) : null,
-          })
-          const g = src.toNonIndexed()
-          g.computeVertexNormals()
-          o.geometry = g
-        }
-        o.material = mat
-      }
+      if (o.isMesh) o.material = mat
     })
     const box = new THREE.Box3().setFromObject(s)
     const size = new THREE.Vector3()
@@ -327,109 +311,14 @@ function LogoTree({ reducedMotion, scrollRef, pointerRef, isMobile, nivel, onGeo
       mat,
       peltre: new THREE.Color('#c4cbd6'), // color base del metal
       oro: new THREE.Color('#e6bd7c'), // remate dorado del final
-      jobs,
     }
   }, [scene, nivel, isMobile])
 
-  // Relevo de la malla subdividida, calculada en `src/lib/subdivide.worker.js`.
-  // El encuadre (`aspect`, `baseScale`) se mide sobre la malla BASE y no se
-  // vuelve a tocar: la subdivisión Loop encoge la silueta un 1.1 % en alto y
-  // 0.38 % en proporción — medido — así que recalcularlo al llegar el relevo
-  // solo serviría para provocar un salto visible a cambio de nada.
+  // La malla ya viene fina del GLB (ver arriba): no hay relevo que esperar.
+  // Se avisa en cuanto está montada.
   useEffect(() => {
-    // Nivel 0 no subdivide: la malla montada YA es la definitiva.
-    if (!jobs.length) {
-      onGeometryReady()
-      return
-    }
-    let vivo = true
-    let pendientes = jobs.length
-    let resuelto = false
-
-    const terminado = () => {
-      if (resuelto) return
-      resuelto = true
-      clearTimeout(plazo)
-      onGeometryReady()
-    }
-
-    // Plan B: la subdivisión en el hilo principal, dentro de un hueco libre.
-    // Cuesta ~700 ms de CPU en un teléfono, así que no es gratis — pero la
-    // alternativa es un árbol facetado PARA SIEMPRE, que es exactamente el
-    // aspecto de "el modelo no cargó bien".
-    // `three-subdivide` se importa aquí dentro a propósito: solo se descarga si
-    // de verdad hace falta y no engorda el chunk del 3D.
-    const planB = () => {
-      if (!vivo || resuelto) return
-      const correr = async () => {
-        const { LoopSubdivision } = await import('three-subdivide')
-        if (!vivo || resuelto) return
-        for (const { mesh, position, index } of jobs) {
-          const g = new THREE.BufferGeometry()
-          g.setAttribute('position', new THREE.BufferAttribute(position, 3))
-          if (index) g.setIndex(new THREE.BufferAttribute(index, 1))
-          const out = LoopSubdivision.modify(g, 1, {
-            split: true, uvSmooth: true, preserveEdges: false, maxTriangles: 250000,
-          })
-          out.computeVertexNormals()
-          const anterior = mesh.geometry
-          mesh.geometry = out
-          anterior.dispose()
-        }
-        terminado()
-      }
-      const ric = window.requestIdleCallback
-      if (ric) ric(correr, { timeout: 1500 })
-      else setTimeout(correr, 200)
-    }
-
-    // PLAZO, no detección de errores. Un worker puede fallar de muchas maneras
-    // y varias son SILENCIOSAS: `new Worker()` no lanza si el script no carga,
-    // y `onerror` no siempre llega (se comprobó en un iPhone real — el árbol se
-    // quedó facetado con `onerror` puesto). Así que no se intenta averiguar por
-    // qué falla: si en 1,2 s no ha entregado la malla, se hace por el otro
-    // camino. Lo único que importa es que el árbol acabe fino, siempre.
-    const plazo = setTimeout(planB, 1200)
-
-    let worker
-    try {
-      worker = new Worker(new URL('../lib/subdivide.worker.js', import.meta.url), {
-        type: 'module',
-      })
-    } catch {
-      clearTimeout(plazo)
-      planB()
-      return () => { vivo = false }
-    }
-    worker.onerror = () => { if (vivo) planB() }
-    worker.onmessage = (e) => {
-      if (!vivo || resuelto) return
-      const { id, position, normal } = e.data
-      const g = new THREE.BufferGeometry()
-      g.setAttribute('position', new THREE.BufferAttribute(position, 3))
-      g.setAttribute('normal', new THREE.BufferAttribute(normal, 3))
-      const { mesh } = jobs[id]
-      const anterior = mesh.geometry
-      mesh.geometry = g
-      anterior.dispose()
-      if (--pendientes === 0) {
-        worker.terminate()
-        terminado()
-      }
-    }
-    // SIN lista de transferibles: si se cedieran los búferes, quedarían
-    // `detached` y el plan B se quedaría sin datos con los que trabajar.
-    // Copiarlos cuesta ~120 KB — los arrays pesados (2.4 MB) son los de VUELTA,
-    // y esos sí viajan transferidos desde el worker.
-    jobs.forEach((j, id) => {
-      worker.postMessage({ id, position: j.position, index: j.index })
-    })
-    return () => {
-      vivo = false
-      clearTimeout(plazo)
-      worker.terminate()
-    }
-  }, [jobs, onGeometryReady])
+    onGeometryReady()
+  }, [onGeometryReady])
 
   // Encuadre. En escritorio se conserva el tamaño de siempre (1.488). En
   // pantallas angostas (iPhone en vertical) ese tamaño deja el árbol cortado
