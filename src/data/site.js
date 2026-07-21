@@ -66,12 +66,10 @@ export const LOBBY_PHOTO_SIZE = { w: 731, h: 1110 }
 export const METAL_TEXTURE = '/img/textura-metal-liquido.webp' // textura metal líquido (poster/estático)
 export const METAL_TEXTURE_SIZE = { w: 1280, h: 715 }
 export const METAL_TEXTURE_VIDEO = '/video/textura-metal.mp4' // textura animada (loop, sin audio)
-export const TREE_MODEL = '/models/arbol-logo.glb' // árbol del logotipo en 3D (Higgsfield sam_3_3d)
 
 // Foto a sangre completa (PhotoBreak). Se sirve en dos anchos vía srcset: el
 // teléfono baja 137 KB en vez de 238 KB, y el escritorio conserva los 1920 px.
 export const HERO_PHOTO = '/img/plaza-arbol-de-la-vida-al-atardecer.webp'
-export const HERO_PHOTO_SM = '/img/plaza-arbol-de-la-vida-al-atardecer-1200.webp'
 export const HERO_PHOTO_SRCSET = `${HERO_PHOTO_SM} 1200w, ${HERO_PHOTO} 1920w`
 export const HERO_PHOTO_SIZE = { w: 1920, h: 1234 }
 
