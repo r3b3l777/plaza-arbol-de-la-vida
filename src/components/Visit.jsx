@@ -20,7 +20,10 @@ export default function Visit() {
   return (
     <section id="visita" className="relative py-24 sm:py-36">
       <div className="mx-auto max-w-6xl px-6 sm:px-8">
-        <div className="text-center max-w-3xl mx-auto">
+        {/* El id lo usa TreeBackground: el logo 3D empieza a formarse cuando
+            este bloque asoma por abajo y termina de formarse cuando ya está
+            arriba en pantalla. Si se renombra, actualizar ANCLA_REVELADO. */}
+        <div id="visita-titular" className="text-center max-w-3xl mx-auto">
           <Reveal>
             <p className="font-body text-xs tracking-[0.4em] uppercase text-plata mb-6">Visítanos</p>
           </Reveal>

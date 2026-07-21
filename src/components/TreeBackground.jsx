@@ -21,6 +21,11 @@ const PostFX = lazy(() => import('./PostFX'))
 
 const MODEL = '/models/arbol-logo.glb'
 
+// Bloque del titular "Visítanos / Te esperamos en el corazón de Metepec"
+// (Visit.jsx). Es el ancla del tramo final del recorrido: el logo empieza a
+// formarse cuando este bloque asoma en pantalla.
+const ANCLA_REVELADO = 'visita-titular'
+
 // Modo captura: congela el tiempo para pre-renderizar la secuencia del móvil.
 const CAPTURA = typeof window !== 'undefined' &&
   new URLSearchParams(window.location.search).has('capture')
@@ -667,9 +672,37 @@ export default function TreeBackground({ reducedMotion }) {
     // forzaba un layout por frame mientras se desplaza la página: justo el tipo
     // de trabajo que se siente como scroll pegajoso. Ahora el scroll solo lee
     // `window.scrollY`, que no toca el layout.
-    let denom = 1
+    // Dos anclas, no una. El recorrido tiene dos tramos con significados
+    // distintos y hasta ahora compartían un solo divisor:
+    //
+    //   inmersión (p 0 → 0.86)  el zoom microscópico, todo el largo de la página
+    //   formación (p 0.86 → 1)  el logo se arma de frente y se pone dorado
+    //
+    // Con un solo divisor, la formación se llevaba el último 14 % del scroll de
+    // TODA la página, que en un documento largo es un tramo enorme y cae ya en
+    // el pie: el logo terminaba de armarse al final del todo. Ahora cada tramo
+    // tiene sus propios límites, y los de la formación están atados al titular
+    // "Te esperamos en el corazón de Metepec":
+    //
+    //   empieza  cuando el bloque asoma por el borde inferior de la pantalla
+    //   termina  cuando ya está arriba, a 0.28 de alto desde el borde superior
+    //
+    // O sea: el dorado arranca justo cuando aparece el texto y se completa
+    // mientras el usuario lo lee, en vez de después de haberlo pasado.
+    let inicioFormacion = 1
+    let finFormacion = 2
     const read = () => {
-      const v = Math.min(1, Math.max(0, window.scrollY / denom))
+      const y = window.scrollY
+      let v
+      if (y <= inicioFormacion) {
+        // Tramo de inmersión: 0 → 0.86 repartido en todo lo que hay antes.
+        v = (y / inicioFormacion) * 0.86
+      } else {
+        // Tramo de formación: 0.86 → 1 en la ventana del titular.
+        const t = (y - inicioFormacion) / (finFormacion - inicioFormacion)
+        v = 0.86 + Math.min(1, t) * 0.14
+      }
+      v = Math.min(1, Math.max(0, v))
       scrollTargetRef.current = v
       // Sin suavizado, el recorrido consume el valor crudo tal cual (escritorio:
       // Lenis ya lo entrega interpolado).
@@ -677,13 +710,17 @@ export default function TreeBackground({ reducedMotion }) {
     }
     const measure = () => {
       const vh = window.innerHeight
-      const visit = document.getElementById('visita')
-      // Se forma cuando el encabezado "Te esperamos en el corazón de Metepec"
-      // (arriba de #visita) ya está en pantalla — no antes.
-      const targetTop = visit
-        ? visit.getBoundingClientRect().top + window.scrollY - vh * 0.28
-        : document.documentElement.scrollHeight - vh
-      denom = Math.max(1, targetTop)
+      const ancla = document.getElementById(ANCLA_REVELADO)
+      if (ancla) {
+        const arriba = ancla.getBoundingClientRect().top + window.scrollY
+        inicioFormacion = Math.max(1, arriba - vh)
+        finFormacion = Math.max(inicioFormacion + 1, arriba - vh * 0.28)
+      } else {
+        // Sin ancla (por si el bloque se renombra): el comportamiento anterior.
+        const fin = document.documentElement.scrollHeight - vh
+        inicioFormacion = Math.max(1, fin * 0.86)
+        finFormacion = Math.max(inicioFormacion + 1, fin)
+      }
       read()
     }
     // Re-medir en un rAF: las imágenes al cargar mueven el documento y el
