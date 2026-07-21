@@ -18,7 +18,12 @@ function FXDriver({ scrollRef, bloomRef, isMobile }) {
   useFrame(() => {
     const { gem, reveal } = phases(scrollRef.current)
     if (bloomRef.current) {
-      bloomRef.current.intensity = 0.24 + gem * 0.28 + reveal * (isMobile ? 0.05 : 0.12)
+      // El halo en móvil va MÁS BAJO: con el HDR de estudio el árbol ya llega
+      // luminoso al bloom, y sumarle el mismo halo que en escritorio lo lleva
+      // al blanco quemado. Se pidió expresamente que brillara menos.
+      bloomRef.current.intensity = isMobile
+        ? 0.13 + gem * 0.16 + reveal * 0.03
+        : 0.24 + gem * 0.28 + reveal * 0.12
     }
   })
   return null

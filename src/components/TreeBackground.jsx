@@ -109,44 +109,6 @@ const PASOS_MOVIL = [
 ]
 
 /**
- * LIMITADOR DE FOTOGRAMAS — 60 fps fijos, con techo de 144 Hz.
- *
- * Por defecto three renderiza a la frecuencia de la pantalla. En un iPhone con
- * ProMotion eso son 120 Hz: el DOBLE de trabajo de GPU cada segundo, para una
- * escena cuya animación se mueve lentísima y donde 60 y 120 son
- * indistinguibles a simple vista. Ese trabajo de más no es gratis — calienta el
- * teléfono, y un teléfono caliente baja su propia frecuencia y ahí sí se nota.
- *
- * Fijando 60 se libera la mitad del presupuesto de GPU, que es exactamente lo
- * que hace que el resto vaya estable en vez de a tirones.
- *
- * Funciona con `frameloop="never"`: r3f no dibuja por su cuenta y aquí se le
- * pide un frame con `advance()` solo cuando toca. El margen de 1 ms evita que
- * un redondeo del reloj haga perder un frame entero y el ritmo se vaya a 30.
- */
-const FPS_OBJETIVO = 60
-const FPS_TECHO = 144
-
-function LimitadorDeFPS({ activo, fps = FPS_OBJETIVO }) {
-  const advance = useThree((s) => s.advance)
-  useEffect(() => {
-    if (!activo) return
-    const intervalo = 1000 / Math.min(FPS_TECHO, fps)
-    let raf
-    let ultimo = -Infinity
-    const bucle = (t) => {
-      raf = requestAnimationFrame(bucle)
-      if (t - ultimo < intervalo - 1) return
-      ultimo = t
-      advance(t)
-    }
-    raf = requestAnimationFrame(bucle)
-    return () => cancelAnimationFrame(raf)
-  }, [activo, advance, fps])
-  return null
-}
-
-/**
  * Vigila los tiempos de frame y avisa cuando el aparato no da abasto.
  *
  * Se mide en bloques de 45 frames (~0.75 s) en vez de frame a frame: un tirón
@@ -304,7 +266,7 @@ function LogoTree({ reducedMotion, scrollRef, pointerRef, isMobile, nivel, onGeo
           clearcoatRoughness: isMobile ? 0.22 : 0.12,
           // Y el mapa de entorno aporta menos, que es de donde viene el brillo
           // que sobraba (ver también `environmentIntensity` del Environment).
-          envMapIntensity: isMobile ? 1.12 : 1.45,
+          envMapIntensity: isMobile ? 0.95 : 1.45,
           specularIntensity: isMobile ? 0.72 : 1.0,
           specularColor: new THREE.Color('#ffffff'),
           // Sin `sheen`: es una capa BRDF extra que se evalúa en cada píxel y su
@@ -392,13 +354,17 @@ function LogoTree({ reducedMotion, scrollRef, pointerRef, isMobile, nivel, onGeo
     // Órbita lateral: arco alrededor del árbol durante la inmersión (máximo a
     // media profundidad, vuelve al centro al formarse) + micro-vaivén de
     // "cámara en mano" que crece con la profundidad → vuelo, no travelling.
-    const hand = live * (Math.sin(t * 0.9) * 0.011 + Math.sin(t * 1.7 + 2) * 0.005) * (0.35 + gem)
+    // El vaivén de "cámara en mano" se diseñó mirando una pantalla grande. En
+    // un teléfono, con el árbol ocupando todo el ancho, el mismo movimiento se
+    // lee como vibración en vez de como cine: en móvil va a la mitad.
+    const mano = isMobile ? 0.5 : 1
+    const hand = live * mano * (Math.sin(t * 0.9) * 0.011 + Math.sin(t * 1.7 + 2) * 0.005) * (0.35 + gem)
     // Paralaje suave de cámara con el cursor (además del giro del modelo)
     const camPar = live * pointerRef.current.x * 0.13
     const camX = (Math.sin(zoom * Math.PI * 0.9) * 0.5 + hand) * (1 - reveal) + camPar
     camera.position.x += (camX - camera.position.x) * k * 0.9
 
-    const handY = live * (Math.sin(t * 0.7 + 1) * 0.009 + Math.sin(t * 1.4) * 0.004) * (0.35 + gem)
+    const handY = live * mano * (Math.sin(t * 0.7 + 1) * 0.009 + Math.sin(t * 1.4) * 0.004) * (0.35 + gem)
     const travelY = (0.55 - zoom * (isMobile ? 0.62 : 1.15) + handY) * (1 - reveal)
     camera.position.y += (travelY - camera.position.y) * k * 0.9
     // Encuadre final en móvil: el logo se coloca ABAJO, no centrado.
@@ -457,13 +423,15 @@ function LogoTree({ reducedMotion, scrollRef, pointerRef, isMobile, nivel, onGeo
     // ámbar, oro rosa, oro verde — se lean como un dorado con vida en vez de
     // una pieza de oro macizo plano.
     mat.color.copy(peltre).lerp(oro, reveal * 0.58)
-    mat.emissive.setRGB(0.93, 0.74, 0.4).multiplyScalar(reveal * 0.06)
+    // El emisivo es lo que empuja el metal hacia el blanco quemado en el
+    // remate. En móvil, con el HDR de estudio detrás, se queda a la mitad.
+    mat.emissive.setRGB(0.93, 0.74, 0.4).multiplyScalar(reveal * (isMobile ? 0.03 : 0.06))
     // OJO: esto reescribe cada frame el valor del material, así que la base de
     // móvil tiene que repetirse aquí o se pierde.
     // En móvil el entorno es un HDR de estudio, mucho más luminoso que los
     // Lightformers de escritorio: si además se sube en el remate, el reflejo
     // blanco se come el oro. Ahí se BAJA para que manden las luces de color.
-    mat.envMapIntensity = isMobile ? 1.12 - reveal * 0.42 : 1.45 + reveal * 0.3
+    mat.envMapIntensity = isMobile ? 0.95 - reveal * 0.38 : 1.45 + reveal * 0.3
 
     // Respiración de escala, más profunda dentro del árbol
     const breathe = 1 + live * Math.sin(t * 0.6) * (0.012 + 0.016 * gem * (1 - reveal))
@@ -621,6 +589,22 @@ export default function TreeBackground({ reducedMotion }) {
   // Valor crudo del scroll, antes de suavizar. En escritorio es el mismo: lo
   // que llega ya viene interpolado por Lenis. Ver `SuavizadoDeScroll`.
   const scrollTargetRef = useRef(0)
+  // 0 mientras el árbol tiene algo que decir; 1 al final del documento. Sirve
+  // para retirarlo después de su remate (ver `aplicarOpacidad`).
+  const salidaRef = useRef(0)
+
+  const shellRef = useRef(null)
+  const pintado = useRef(false)
+  const afinado = useRef(false)
+  const avisado = useRef(false)
+  // Única puerta de la opacidad del telón: combina "ya está listo para verse"
+  // con "ya cumplió y se retira". Dos sitios escribiendo `style.opacity` se
+  // pisarían el uno al otro.
+  const aplicarOpacidad = useCallback(() => {
+    if (!shellRef.current) return
+    const visible = pintado.current && afinado.current ? 1 : 0
+    shellRef.current.style.opacity = String(visible * (1 - salidaRef.current))
+  }, [])
   const suavizarScroll = isMobile && !reducedMotion
   useEffect(() => {
     // El punto donde el recorrido llega a 1 se MIDE aparte y se guarda. Antes
@@ -649,6 +633,7 @@ export default function TreeBackground({ reducedMotion }) {
     // anterior. Al llegar al texto ya se encuentra el logo hecho y dorado.
     let inicioFormacion = 1
     let finFormacion = 2
+    let maxScroll = 1
     const read = () => {
       const y = window.scrollY
       let v
@@ -662,12 +647,22 @@ export default function TreeBackground({ reducedMotion }) {
       }
       v = Math.min(1, Math.max(0, v))
       scrollTargetRef.current = v
+      // Tras el remate, el árbol se RETIRA. Si no, el telón fijo vuelve a
+      // asomar por detrás del pie de página y el logo dorado aparece una
+      // segunda vez, ya fuera de su momento. Se mantiene entero durante el
+      // primer 35 % de lo que queda —el titular y las tarjetas de Visítanos— y
+      // se va desvaneciendo a partir de ahí.
+      const resto = maxScroll - finFormacion
+      const tras = resto > 0 ? (y - finFormacion) / resto : 0
+      salidaRef.current = Math.min(1, Math.max(0, (tras - 0.35) / 0.5))
+      aplicarOpacidad()
       // Sin suavizado, el recorrido consume el valor crudo tal cual (escritorio:
       // Lenis ya lo entrega interpolado).
       if (!suavizarScroll) scrollRef.current = v
     }
     const measure = () => {
       const vh = window.innerHeight
+      maxScroll = Math.max(1, document.documentElement.scrollHeight - vh)
       const ancla = document.getElementById(ANCLA_REVELADO)
       if (ancla) {
         const arriba = ancla.getBoundingClientRect().top + window.scrollY
@@ -704,7 +699,7 @@ export default function TreeBackground({ reducedMotion }) {
       window.removeEventListener('resize', scheduleMeasure)
       window.removeEventListener('load', scheduleMeasure)
     }
-  }, [suavizarScroll])
+  }, [suavizarScroll, aplicarOpacidad])
 
   // Gancho de captura (?capture=1): permite fijar el progreso del recorrido
   // desde fuera para pre-renderizar los fotogramas del móvil. Solo se instala
@@ -748,14 +743,30 @@ export default function TreeBackground({ reducedMotion }) {
   useEffect(() => {
     if (reducedMotion || !isMobile || typeof DeviceOrientationEvent === 'undefined') return
     let attached = false
+    // Estado suavizado del sensor. NO se escribe el valor crudo en la cámara:
+    // un teléfono sostenido en la mano nunca está quieto —el pulso son décimas
+    // de grado a varios Hz— y ese temblor entraba tal cual a la rotación del
+    // modelo (±0.32) y al paralaje de cámara (0.13). Como la cámara mueve TODA
+    // la escena, el árbol y las partículas vibraban juntos, todo el rato, y
+    // solo en móvil.
+    //
+    // Una media móvil exponencial con alfa 0.05 sobre eventos de ~60 Hz deja
+    // una constante de tiempo de ~300 ms: el temblor de pulso desaparece por
+    // completo y la inclinación intencionada —que dura mucho más que eso— se
+    // sigue notando entera.
+    let suaveX = 0
+    let suaveY = 0
+    const ALFA = 0.05
     const onTilt = (e) => {
       if (e.gamma == null || e.beta == null) return
       const clamp = (v) => Math.max(-1, Math.min(1, v))
       // gamma: inclinación izquierda/derecha. beta: adelante/atrás; el punto
       // neutro son ~60°, el ángulo en que se sostiene el teléfono al leer, para
       // que el árbol esté de frente en la posición natural y no ya inclinado.
-      pointerRef.current.x = clamp(e.gamma / 38)
-      pointerRef.current.y = clamp((e.beta - 60) / 45)
+      suaveX += (clamp(e.gamma / 38) - suaveX) * ALFA
+      suaveY += (clamp((e.beta - 60) / 45) - suaveY) * ALFA
+      pointerRef.current.x = suaveX
+      pointerRef.current.y = suaveY
     }
     const attach = () => {
       if (attached) return
@@ -778,10 +789,14 @@ export default function TreeBackground({ reducedMotion }) {
     }
   }, [reducedMotion, isMobile])
 
-  // `never`: el bucle lo lleva LimitadorDeFPS, que pide un frame a 60 Hz en vez
-  // de dejar que three siga la frecuencia de la pantalla (120 Hz en ProMotion).
-  // Con reduced-motion o la pestaña oculta, simplemente no se pide ninguno.
-  const animando = !reducedMotion && visible
+  // Se probó limitar a 60 fps con `frameloop="never"` + un bucle propio que
+  // llamaba a `advance()` cada 16.7 ms. En papel liberaba la mitad del
+  // presupuesto de GPU en pantallas de 120 Hz, y el contador daba 59.9 fps
+  // clavados. En un teléfono real el árbol VIBRABA: saltarse fotogramas a mano
+  // desacompasa el reloj de three con el ritmo real de la pantalla, y las
+  // animaciones sinusoidales lentas del árbol amplifican ese desfase. No
+  // repetirlo sin un aparato delante para comprobarlo.
+  const frameloop = reducedMotion || !visible ? 'demand' : 'always'
 
   // Fade del telón estático al 3D. El canvas pinta el MISMO color de fondo
   // (#14181e) que StaticBackdrop, así que lo único que aparece es el árbol.
@@ -795,13 +810,9 @@ export default function TreeBackground({ reducedMotion }) {
   // enormes en el zoom cercano, que es justo lo que se leía como "el modelo no
   // cargó bien". Vale más esperar ~1 s con el telón de marca —que ya pinta el
   // color y los degradados— y entrar con el árbol correcto.
-  const shellRef = useRef(null)
-  const pintado = useRef(false)
-  const afinado = useRef(false)
-  const avisado = useRef(false)
   const mostrar = useCallback(() => {
     if (pintado.current && afinado.current && shellRef.current) {
-      shellRef.current.style.opacity = '1'
+      aplicarOpacidad()
       // Este es el instante en que ya no queda NADA por cargar del 3D: chunk
       // ejecutado, GLB parseado, materiales construidos, shaders compilados y
       // la malla fina en su sitio. La intro escucha este aviso para no quitarse
@@ -813,7 +824,7 @@ export default function TreeBackground({ reducedMotion }) {
         window.dispatchEvent(new Event('plaza:3d-listo'))
       }
     }
-  }, [])
+  }, [aplicarOpacidad])
   const onReady = useCallback(() => {
     pintado.current = true
     mostrar()
@@ -831,7 +842,7 @@ export default function TreeBackground({ reducedMotion }) {
       mostrar()
     }, 4000)
     return () => clearTimeout(t)
-  }, [mostrar])
+  }, [mostrar, aplicarOpacidad])
 
   return (
     <div
@@ -869,11 +880,10 @@ export default function TreeBackground({ reducedMotion }) {
           toneMappingExposure: 1.15,
           outputColorSpace: THREE.SRGBColorSpace,
         }}
-        frameloop="never"
+        frameloop={frameloop}
       >
         {/* Primero de todo: el resto del árbol consume `scrollRef` en el mismo
             frame, y los useFrame corren en orden de montaje. */}
-        <LimitadorDeFPS activo={animando} />
         {suavizarScroll && (
           <SuavizadoDeScroll scrollRef={scrollRef} targetRef={scrollTargetRef} />
         )}
@@ -939,7 +949,7 @@ export default function TreeBackground({ reducedMotion }) {
             // raw.githack.com (1.7 MB, CDN de terceros con límite de tasa), así
             // que en el teléfono el árbol se quedaba mate hasta que llegara —o
             // para siempre si fallaba.
-            <Environment files="/hdr/studio-small.hdr" environmentIntensity={0.82} />
+            <Environment files="/hdr/studio-small.hdr" environmentIntensity={0.62} />
           ) : (
             <Environment resolution={128} environmentIntensity={1.0}>
               <color attach="background" args={['#0b0e12']} />

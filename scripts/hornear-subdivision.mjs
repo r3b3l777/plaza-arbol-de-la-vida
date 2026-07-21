@@ -21,7 +21,7 @@ import { LoopSubdivision } from 'three-subdivide'
 import { NodeIO } from '@gltf-transform/core'
 import { ALL_EXTENSIONS } from '@gltf-transform/extensions'
 import { EXTMeshoptCompression } from '@gltf-transform/extensions'
-import { reorder, prune, quantize, weld } from '@gltf-transform/functions'
+import { reorder, prune, weld } from '@gltf-transform/functions'
 import { MeshoptDecoder, MeshoptEncoder } from 'meshoptimizer'
 
 const ENTRADA = 'assets-original/models/arbol-logo.glb'
@@ -91,17 +91,16 @@ for (const mat of doc.getRoot().listMaterials()) {
 // Sin índice, la malla ocupa 1 MB: cada triángulo repite sus 3 vértices. Al
 // soldarla, los vértices compartidos se unifican y aparecen los índices.
 //
-// Y AHORA SÍ se puede cuantizar. Las notas del proyecto decían que no, porque
-// LoopSubdivision leía los arrays crudos en el navegador y no interpreta
-// atributos normalizados. Eso ya no aplica: la subdivisión ocurre aquí, y lo
-// que llega al navegador es una malla terminada que solo hay que subir a la
-// GPU. 14 bits de posición sobre una pieza de 1 unidad son ~0.06 mm.
-await doc.transform(
-  weld(),
-  quantize({ quantizePosition: 14, quantizeNormal: 10 }),
-  prune(),
-  reorder({ encoder: MeshoptEncoder }),
-)
+// NO se cuantiza, y es deliberado. Se probó (122 KB en vez de 217) y provocaba
+// un TEMBLOR visible: al no enviar normales, `flatShading` las deriva de las
+// posiciones, así que el error de cuantización se convierte en error de normal.
+// Sobre un metal con clearcoat eso no se ve como imprecisión, se ve como
+// centelleo — las facetas parpadean al moverse la cámara.
+//
+// Los 95 KB de más compran una superficie quieta. Y el balance sigue a favor:
+// al hornear desapareció el chunk del worker (119 KB de JS), así que contra el
+// estado anterior el sitio pesa ~42 KB más y se ahorra el cálculo entero.
+await doc.transform(weld(), prune(), reorder({ encoder: MeshoptEncoder }))
 doc.createExtension(EXTMeshoptCompression)
   .setRequired(true)
   .setEncoderOptions({ method: EXTMeshoptCompression.EncoderMethod.FILTER })
