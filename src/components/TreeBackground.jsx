@@ -594,6 +594,15 @@ export default function TreeBackground({ reducedMotion }) {
     }
   }, [])
 
+  // Gancho de captura (?capture=1): permite fijar el progreso del recorrido
+  // desde fuera para pre-renderizar los fotogramas del móvil. Solo se instala
+  // con el parámetro puesto; en producción no existe.
+  useEffect(() => {
+    if (!new URLSearchParams(window.location.search).has('capture')) return
+    window.__setP = (v) => { scrollRef.current = Math.max(0, Math.min(1, v)) }
+    window.__ready = true
+  }, [])
+
   // Cursor normalizado (-1..1). Se escucha en la VENTANA porque el canvas es
   // `pointer-events: none` y nunca recibiría eventos por su cuenta.
   const pointerRef = useRef({ x: 0, y: 0 })
