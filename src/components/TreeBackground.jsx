@@ -1,8 +1,7 @@
 import { memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { advance, Canvas, useFrame, useThree } from '@react-three/fiber'
+import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { Environment, Float, Lightformer, Sparkles, useGLTF } from '@react-three/drei'
 import { EffectComposer, Bloom, Vignette } from '@react-three/postprocessing'
-import { LoopSubdivision } from 'three-subdivide'
 import * as THREE from 'three'
 
 /**
@@ -17,25 +16,6 @@ import * as THREE from 'three'
  * congelado). Todo se comparte vía `scrollRef`.
  */
 const MODEL = '/models/arbol-logo.glb'
-
-// Cadencia de frames del 3D (ver el "pacer" al final del archivo).
-// `0` = sin límite (cada rAF, el comportamiento normal de r3f).
-//
-// MIENTRAS EL USUARIO INTERACTÚA NO SE LIMITA, TAMPOCO EN MÓVIL. Se probó
-// capar a 34 fps en el teléfono con la idea de que "el árbol se mueve tan
-// despacio que no se nota"; se nota, y mucho:
-//   1. El árbol es el FONDO de una página que Lenis desplaza a 60 fps. Con el
-//      fondo a 30 y el contenido a 60 el desfase se lee como trabazón — el
-//      problema es la DIFERENCIA de cadencia, no la cadencia en sí.
-//   2. El recorrido de cámara lee `scrollRef` solo cuando pinta, así que con
-//      cap la cámara va hasta 33 ms por detrás del dedo.
-// El ahorro de GPU no compensa: se percibe peor que el problema que resolvía.
-const FPS_ACTIVO = { movil: 0, escritorio: 0 }
-// EN REPOSO sí se frena: sin scroll ni cursor no hay con qué comparar la
-// cadencia, así que 30 fps es invisible y evita tener el teléfono calentándose
-// para nada (un iPhone caliente es un iPhone con throttling).
-const FPS_QUIETO = { movil: 30, escritorio: 30 }
-const MS_QUIETO = 2500 // silencio de scroll/cursor que cuenta como "quieto"
 
 // Progreso → factores del recorrido. `gem` es la campana del zoom profundo
 // (0 arriba, 1 en el punto microscópico, 0 al formarse) que dispara el look gema.
@@ -110,7 +90,7 @@ function LogoTree({ reducedMotion, scrollRef, pointerRef, isMobile }) {
   const { viewport, camera } = useThree()
 
   // Clona la escena y aplica material cromo-gema (iridiscencia fuerte) + normales
-  const { model, aspect, mat, peltre, oro } = useMemo(() => {
+  const { model, aspect, mat, peltre, oro, jobs } = useMemo(() => {
     const s = scene.clone(true)
     // Acabado LUXURY con un toque DIAMANTE, consistente Safari/Chrome:
     // se evitan iridescence/anisotropy (extensiones KHR que Safari renderiza
@@ -129,21 +109,30 @@ function LogoTree({ reducedMotion, scrollRef, pointerRef, isMobile }) {
       // aporte (un velo dorado tenue) ahora lo dan el color y las luces.
     })
     // Subdivisión (Loop) → muchos más polígonos: superficie ultra suave y
-    // detallada, clave en el zoom microscópico (sin facetas). Antes se saltaba
-    // en móvil y por eso el árbol se veía POLIGONAL en el iPhone mientras en
-    // Chrome salía liso; ahora es el mismo paso en ambos.
-    const iters = 1
+    // detallada, clave en el zoom microscópico (sin facetas). Sin ella el árbol
+    // se ve POLIGONAL, así que sigue haciéndose — pero YA NO AQUÍ.
+    //
+    // Medido sobre esta malla (5.052 → 34.784 triángulos): ~200 ms en un Mac,
+    // ~700 ms en un iPhone. Hacerlo en el hilo principal congelaba la página
+    // ese tiempo entero: sin scroll, sin pintar, y sin árbol hasta el final.
+    // Ahora se monta al instante la malla BASE y un worker devuelve la versión
+    // subdividida cuando la tiene (ver `jobs` y el efecto de abajo).
+    //
+    // La base va sin índice + `computeVertexNormals` para que tenga el MISMO
+    // carácter de sombreado plano que el resultado final, solo más basta: al
+    // llegar el relevo solo se afina la superficie, no cambia la iluminación.
+    const jobs = []
     s.traverse((o) => {
       if (o.isMesh) {
-        let g = o.geometry
-        if (iters > 0) {
-          g = LoopSubdivision.modify(g, iters, {
-            split: true,
-            uvSmooth: true,
-            preserveEdges: false,
-            maxTriangles: 250000,
-          })
-        }
+        const src = o.geometry
+        // Copias propias: los búferes se ceden al worker (transferibles) y no
+        // pueden ser los del GLTF cacheado, que se reutiliza entre montajes.
+        jobs.push({
+          mesh: o,
+          position: new Float32Array(src.attributes.position.array),
+          index: src.index ? new Uint32Array(src.index.array) : null,
+        })
+        const g = src.toNonIndexed()
         g.computeVertexNormals()
         o.geometry = g
         o.material = mat
@@ -166,8 +155,50 @@ function LogoTree({ reducedMotion, scrollRef, pointerRef, isMobile }) {
       mat,
       peltre: new THREE.Color('#c4cbd6'), // color base del metal
       oro: new THREE.Color('#e6bd7c'), // remate dorado del final
+      jobs,
     }
   }, [scene])
+
+  // Relevo de la malla subdividida, calculada en `src/lib/subdivide.worker.js`.
+  // El encuadre (`aspect`, `baseScale`) se mide sobre la malla BASE y no se
+  // vuelve a tocar: la subdivisión Loop encoge la silueta un 1.1 % en alto y
+  // 0.38 % en proporción — medido — así que recalcularlo al llegar el relevo
+  // solo serviría para provocar un salto visible a cambio de nada.
+  useEffect(() => {
+    if (!jobs.length) return
+    let worker
+    try {
+      worker = new Worker(new URL('../lib/subdivide.worker.js', import.meta.url), {
+        type: 'module',
+      })
+    } catch {
+      // Sin workers el árbol se queda en la malla base: peor acabado, pero
+      // jamás una página congelada. Es la degradación correcta.
+      return
+    }
+    let vivo = true
+    let pendientes = jobs.length
+    worker.onmessage = (e) => {
+      if (!vivo) return
+      const { id, position, normal } = e.data
+      const g = new THREE.BufferGeometry()
+      g.setAttribute('position', new THREE.BufferAttribute(position, 3))
+      g.setAttribute('normal', new THREE.BufferAttribute(normal, 3))
+      const { mesh } = jobs[id]
+      const anterior = mesh.geometry
+      mesh.geometry = g
+      anterior.dispose()
+      if (--pendientes === 0) worker.terminate()
+    }
+    jobs.forEach((j, id) => {
+      worker.postMessage({ id, position: j.position, index: j.index },
+        j.index ? [j.position.buffer, j.index.buffer] : [j.position.buffer])
+    })
+    return () => {
+      vivo = false
+      worker.terminate()
+    }
+  }, [jobs])
 
   // Encuadre. En escritorio se conserva el tamaño de siempre (1.488). En
   // pantallas angostas (iPhone en vertical) ese tamaño deja el árbol cortado
@@ -411,15 +442,6 @@ export default function TreeBackground({ reducedMotion }) {
     return () => document.removeEventListener('visibilitychange', onVis)
   }, [])
 
-  // Último momento en que el usuario "hizo algo" (scroll, cursor, inclinar el
-  // teléfono). Lo escriben los mismos manejadores que ya existían —sin añadir ni
-  // un listener— y lo lee el pacer de frames para bajar la cadencia cuando la
-  // página lleva un rato quieta.
-  const activityRef = useRef(0)
-  // Segundos de reloj ya consumidos por el 3D (lo que r3f ve como
-  // `clock.elapsedTime`). Sobrevive a las pausas del pacer.
-  const transcurridoRef = useRef(0)
-
   // Progreso de scroll compartido (0 arriba → 1 al formarse en #visita)
   const scrollRef = useRef(0)
   useEffect(() => {
@@ -431,10 +453,6 @@ export default function TreeBackground({ reducedMotion }) {
     let denom = 1
     const read = () => {
       scrollRef.current = Math.min(1, Math.max(0, window.scrollY / denom))
-    }
-    const onScroll = () => {
-      activityRef.current = performance.now()
-      read()
     }
     const measure = () => {
       const vh = window.innerHeight
@@ -455,7 +473,7 @@ export default function TreeBackground({ reducedMotion }) {
       pending = requestAnimationFrame(measure)
     }
     measure()
-    window.addEventListener('scroll', onScroll, { passive: true })
+    window.addEventListener('scroll', read, { passive: true })
     window.addEventListener('resize', scheduleMeasure)
     window.addEventListener('load', scheduleMeasure)
     const ro = new ResizeObserver(scheduleMeasure)
@@ -463,7 +481,7 @@ export default function TreeBackground({ reducedMotion }) {
     return () => {
       cancelAnimationFrame(pending)
       ro.disconnect()
-      window.removeEventListener('scroll', onScroll)
+      window.removeEventListener('scroll', read)
       window.removeEventListener('resize', scheduleMeasure)
       window.removeEventListener('load', scheduleMeasure)
     }
@@ -475,7 +493,6 @@ export default function TreeBackground({ reducedMotion }) {
   useEffect(() => {
     if (reducedMotion) return
     const onMove = (e) => {
-      activityRef.current = performance.now()
       pointerRef.current.x = (e.clientX / window.innerWidth) * 2 - 1
       pointerRef.current.y = (e.clientY / window.innerHeight) * 2 - 1
     }
@@ -499,17 +516,8 @@ export default function TreeBackground({ reducedMotion }) {
   useEffect(() => {
     if (reducedMotion || !isMobile || typeof DeviceOrientationEvent === 'undefined') return
     let attached = false
-    let lastGamma = 0, lastBeta = 0
     const onTilt = (e) => {
       if (e.gamma == null || e.beta == null) return
-      // El sensor dispara ~60 veces por segundo aunque el teléfono esté sobre la
-      // mesa (ruido de décimas de grado). Solo cuenta como actividad un
-      // movimiento de verdad; si no, nunca se entraría en modo quieto.
-      if (Math.abs(e.gamma - lastGamma) + Math.abs(e.beta - lastBeta) > 0.6) {
-        activityRef.current = performance.now()
-      }
-      lastGamma = e.gamma
-      lastBeta = e.beta
       const clamp = (v) => Math.max(-1, Math.min(1, v))
       // gamma: inclinación izquierda/derecha. beta: adelante/atrás; el punto
       // neutro son ~60°, el ángulo en que se sostiene el teléfono al leer, para
@@ -539,53 +547,7 @@ export default function TreeBackground({ reducedMotion }) {
   }, [reducedMotion, isMobile])
 
   const bloomRef = useRef()
-  // Con `reducedMotion` el canvas se pinta una sola vez y se queda quieto (igual
-  // que antes). Si no, lo conduce el pacer de aquí abajo.
-  const frameloop = reducedMotion ? 'demand' : 'never'
-
-  // === PACER DE FRAMES ===
-  // r3f no trae límite de fps, así que el bucle se lleva a mano: el canvas queda
-  // en `frameloop="never"` y este rAF decide CUÁNDO se pinta. En escritorio con
-  // el usuario activo no limita nada (es el mismo bucle que hacía r3f); en móvil
-  // corta a ~34 fps, y si la página lleva un rato quieta baja más todavía.
-  //
-  // OJO con las unidades: en modo 'never' r3f copia el timestamp TAL CUAL a
-  // `clock.elapsedTime`, no lo divide. Hay que pasarle SEGUNDOS desde el
-  // arranque; con `performance.now()` en milisegundos el árbol se animaría mil
-  // veces más rápido y el primer delta sería enorme.
-  useEffect(() => {
-    if (reducedMotion || !visible) return
-    const perfil = isMobile ? 'movil' : 'escritorio'
-    // El reloj tiene que CONTINUAR donde se quedó. Si al volver de otra pestaña
-    // se reiniciara a 0, r3f calcularía `delta = 0 - elapsedTime` → un delta
-    // NEGATIVO, y el suavizado `1 - 0.0022^delta` se dispara a valores absurdos:
-    // el árbol pegaría un salto. Por eso `t0` se recoloca en función del tiempo
-    // ya acumulado, y el rato con la pestaña oculta simplemente no cuenta.
-    const t0 = performance.now() - transcurridoRef.current * 1000
-    // Arrancar SIEMPRE en modo activo. Si no se toca, `activityRef` vale 0 y la
-    // comparación `now - 0 > 2500` es cierta desde el primer frame: el árbol
-    // nacía frenado y se quedaba así hasta el primer scroll — justo durante la
-    // intro y la aparición, que es cuando peor se ve. Al volver de otra pestaña
-    // vale lo mismo: si el usuario acaba de regresar, está activo.
-    activityRef.current = performance.now()
-    let raf = 0
-    let ultimo = -Infinity
-    const loop = (now) => {
-      raf = requestAnimationFrame(loop)
-      const quieto = now - activityRef.current > MS_QUIETO
-      const fps = quieto ? FPS_QUIETO[perfil] : FPS_ACTIVO[perfil]
-      if (fps > 0) {
-        // El margen de 1 ms importa: un frame de 16.6 ms contra un presupuesto
-        // de 16.67 se saltaría, y la cadencia se partiría a la mitad.
-        if (now - ultimo < 1000 / fps - 1) return
-      }
-      ultimo = now
-      transcurridoRef.current = (now - t0) / 1000
-      advance(transcurridoRef.current)
-    }
-    raf = requestAnimationFrame(loop)
-    return () => cancelAnimationFrame(raf)
-  }, [reducedMotion, visible, isMobile])
+  const frameloop = reducedMotion || !visible ? 'demand' : 'always'
 
   // Fade del telón estático al 3D. El canvas pinta el MISMO color de fondo
   // (#14181e) que StaticBackdrop, así que lo único que aparece es el árbol.
@@ -610,18 +572,12 @@ export default function TreeBackground({ reducedMotion }) {
         transition: reducedMotion ? 'none' : 'opacity 900ms cubic-bezier(0.22, 1, 0.36, 1)',
       }}
     >
-      {/* dpr 1.5 en móvil: en un Pro Max (pantalla ~460 ppi) sigue viéndose
-          igual de nítido pero pinta ~26 % menos píxeles que a 1.75 → menos
-          carga de GPU por frame, que es justo lo que hacía pegajoso el scroll. */}
+      {/* dpr 1.75 en móvil: se ve nítido y pinta ~23 % menos píxeles que a 2 */}
       <Canvas
-        dpr={[1, isMobile ? 1.5 : 1.85]}
+        dpr={[1, isMobile ? 1.75 : 1.85]}
         camera={{ position: [0, 0.55, 1.75], fov: 42 }}
         gl={{
-          // El AA del árbol lo hace el EffectComposer (multisampling en
-          // escritorio). El MSAA del propio canvas actuaría sobre el quad final
-          // del post-procesado, que no tiene bordes de geometría que suavizar:
-          // era trabajo de GPU cada frame sin efecto visible. Se apaga.
-          antialias: false,
+          antialias: true,
           powerPreference: 'high-performance',
           // Pipeline de color EXPLÍCITO → mismo render en Safari y Chrome.
           // Exposición +15%: iguala el look plateado luminoso de Safari (el
@@ -653,15 +609,10 @@ export default function TreeBackground({ reducedMotion }) {
           </Float>
           {/* Micro-polvo también en móvil, con menos motas y a media cadencia */}
           <ReadySignal onReady={onReady} />
-          {/* El recorrido de las motas en JS + la subida del buffer a la GPU es
-              lo más caro de este componente en CPU. La deriva es lentísima
-              (~0.0004/frame), así que en móvil recalcularla 1 de cada 3 frames
-              es indistinguible a la vista y quita trabajo del hilo principal
-              justo mientras se hace scroll. */}
           <MicroDust
             reducedMotion={reducedMotion}
             count={isMobile ? 420 : 1100}
-            everyNthFrame={isMobile ? 3 : 1}
+            everyNthFrame={isMobile ? 2 : 1}
           />
           {!reducedMotion && (
             <Sparkles count={isMobile ? 36 : 70} scale={[7, 9, 4]} size={1.4} speed={0.2} color="#dbe3f0" opacity={0.4} />
