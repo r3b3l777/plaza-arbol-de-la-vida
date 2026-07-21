@@ -74,15 +74,20 @@ body {
   -webkit-backdrop-filter: blur(6px);
 }
 @media (min-width: 768px) {
+  /* El radio de desenfoque se paga en cada frame: `backdrop-filter` obliga al
+     compositor a releer y difuminar el canvas del árbol, que está animado, y el
+     costo crece con el radio. A partir de ~18px el vidrio ya está totalmente
+     lechoso —el fondo es una mancha de color— y subir hasta 28-30px no cambia
+     nada a la vista, solo el trabajo de composición. */
   .panel-light {
     background-color: color-mix(in srgb, var(--color-niebla) 74%, transparent);
-    backdrop-filter: blur(28px) saturate(1.06);
-    -webkit-backdrop-filter: blur(28px) saturate(1.06);
+    backdrop-filter: blur(18px) saturate(1.06);
+    -webkit-backdrop-filter: blur(18px) saturate(1.06);
   }
   .panel-white {
     background-color: color-mix(in srgb, var(--color-blanco) 76%, transparent);
-    backdrop-filter: blur(30px) saturate(1.06);
-    -webkit-backdrop-filter: blur(30px) saturate(1.06);
+    backdrop-filter: blur(20px) saturate(1.06);
+    -webkit-backdrop-filter: blur(20px) saturate(1.06);
   }
 }
 @media (prefers-reduced-transparency: reduce) {
@@ -602,13 +607,43 @@ html.lenis body {
    CTA de disponibilidad (Hero) — destacado dorado para ventas
    ============================================================ */
 .cta-avail {
+  position: relative;
   border: 1px solid rgba(232, 194, 122, 0.55);
   background: linear-gradient(100deg, rgba(232,194,122,0.16), rgba(232,194,122,0.04));
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
-  box-shadow: 0 0 24px -8px rgba(232, 194, 122, 0.5);
-  animation: cta-avail-glow 2.6s ease-in-out infinite;
   transition: border-color 0.3s ease, background 0.3s ease, transform 0.3s ease;
+}
+/*
+ * El resplandor dorado vive en un pseudo-elemento y late con OPACIDAD, no
+ * interpolando `box-shadow`.
+ *
+ * Antes se animaba la sombra misma (22px/-9px/0.45 ↔ 34px/-6px/0.8): cada
+ * fotograma obligaba al navegador a RE-PINTAR la sombra, y este CTA vive en el
+ * hero, encima del canvas 3D a pantalla completa. Un repintado permanente ahí
+ * compite justo por el presupuesto que se está recuperando en móvil.
+ *
+ * Con la sombra fija en una capa propia y solo la opacidad animándose, el
+ * navegador la pinta UNA vez y después solo la compone — trabajo de GPU, no de
+ * CPU, y sin repintar nada.
+ *
+ * La envolvente de brillo se conserva exacta: 0.8 × 0.5625 = 0.45 en el punto
+ * bajo, 0.8 en el alto, los mismos valores de antes. La única diferencia real
+ * es que el desenfoque se queda en 34px/-6px todo el ciclo en vez de encogerse
+ * a 22px/-9px en el punto bajo: en el momento más tenue el halo cae unos pocos
+ * píxeles más lejos, con el mismo alfa.
+ */
+.cta-avail::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow: 0 0 34px -6px rgba(232, 194, 122, 0.8);
+  opacity: 0.5625;
+  animation: cta-avail-glow 2.6s ease-in-out infinite;
+  will-change: opacity;
 }
 .cta-avail:hover {
   border-color: rgba(240, 214, 154, 0.95);
@@ -616,8 +651,8 @@ html.lenis body {
   transform: translateY(-1px);
 }
 @keyframes cta-avail-glow {
-  0%, 100% { box-shadow: 0 0 22px -9px rgba(232, 194, 122, 0.45); }
-  50% { box-shadow: 0 0 34px -6px rgba(232, 194, 122, 0.8); }
+  0%, 100% { opacity: 0.5625; }
+  50% { opacity: 1; }
 }
 .cta-avail-dot {
   position: relative;
@@ -633,6 +668,8 @@ html.lenis body {
   100% { box-shadow: 0 0 0 10px rgba(242, 215, 154, 0); }
 }
 @media (prefers-reduced-motion: reduce) {
-  .cta-avail { animation: none; }
+  /* Sin latido, el halo se queda en el punto medio de siempre: 0.8 × 0.625 =
+     0.5 de alfa, exactamente la sombra estática que había antes aquí. */
+  .cta-avail::before { animation: none; opacity: 0.625; }
   .cta-avail-dot { animation: none; }
 }
