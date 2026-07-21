@@ -22,3 +22,6 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Configuración local de Claude Code (contiene rutas y tokens temporales)
+.claude/settings.local.json
