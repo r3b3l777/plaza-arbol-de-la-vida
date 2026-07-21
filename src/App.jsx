@@ -64,20 +64,22 @@ function App() {
       setMount3D(true)
     }
 
-    // Los assets del 3D se piden YA, sin esperar a montar nada. Mientras corre
-    // la intro de marca (que son un WebP y CSS, casi nada de red) la conexión
-    // está ociosa: es el hueco perfecto para bajar el GLB y el HDR. Así, cuando
-    // el usuario entra, ya están en la caché HTTP y el componente los encuentra
-    // servidos en vez de empezar a pedirlos.
-    // El HDR solo lo usa la ruta móvil — escritorio ilumina con Lightformers.
-    const assets = ['/models/arbol-logo.glb']
+    // El GLB ya NO se pide aquí. Lo hacía para calentar la caché HTTP, pero
+    // `TreeBackground.jsx` llama a `useGLTF.preload(MODEL)` en el cuerpo del
+    // módulo, así que en cuanto el chunk se ejecuta lo pide igualmente. Medido
+    // con caché fría: se descargaba DOS VECES, 217 KB tirados. Con la caché
+    // caliente el segundo sale gratis, pero eso depende de las cabeceras del
+    // servidor y no conviene darlo por hecho.
+    //
+    // El HDR sí se queda: solo lo usa la ruta móvil, lo carga `Environment` por
+    // su cuenta y no expone un preload al que engancharse, así que este fetch
+    // es la única forma de adelantarlo. Pesa ~32 KB.
     if (window.matchMedia('(max-width: 767px)').matches) {
-      assets.push('/hdr/studio-small.hdr')
-    }
-    for (const u of assets) {
       // Se consume el cuerpo: si no, la respuesta no termina de entrar en caché.
       // Prioridad baja para no competir con la primera pintura.
-      fetch(u, { priority: 'low' }).then((r) => r.arrayBuffer()).catch(() => {})
+      fetch('/hdr/studio-small.hdr', { priority: 'low' })
+        .then((r) => r.arrayBuffer())
+        .catch(() => {})
     }
 
     // 400 ms: lo justo para que la intro pinte su entrada sin competir con
