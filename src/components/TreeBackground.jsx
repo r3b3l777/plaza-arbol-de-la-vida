@@ -608,7 +608,15 @@ export default function TreeBackground({ reducedMotion }) {
       className="fixed inset-0 -z-10 pointer-events-none"
       aria-hidden="true"
       style={{
-        height: '100dvh',
+        // `100vh`, NO `100dvh`. En Safari iOS `dvh` cambia mientras haces
+        // scroll, según se colapsa y reaparece la barra de URL. Cada cambio
+        // redimensiona este contenedor → el ResizeObserver de R3F llama a
+        // gl.setSize() → y el EffectComposer REASIGNA sus render targets (mips
+        // del bloom, búferes de multisampling). Reservar búferes de GPU en
+        // mitad de un scroll es exactamente lo que se sentía como trabazón, y
+        // solo pasaba en móvil porque en escritorio no hay barra que se colapse.
+        // `100vh` es el viewport grande y NO varía durante el scroll.
+        height: '100vh',
         opacity: 0,
         transition: reducedMotion ? 'none' : 'opacity 900ms cubic-bezier(0.22, 1, 0.36, 1)',
       }}
