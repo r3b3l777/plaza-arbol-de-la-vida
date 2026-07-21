@@ -15,7 +15,7 @@ import { useEffect, useRef } from 'react'
  * A cambio se pierden el giroscopio y el paralaje con el dedo, que en un
  * teléfono son un detalle menor frente a que el scroll vaya fluido.
  */
-const N = 40
+const N = 72
 const SRC = (i) => `/seq/${String(i).padStart(2, '0')}.webp`
 
 export default function TreeSequence({ reducedMotion }) {
@@ -34,7 +34,7 @@ export default function TreeSequence({ reducedMotion }) {
     let vivo = true
 
     // Tamaño del lienzo. dpr tope 2: por encima de eso solo se copian más
-    // píxeles de los que la fuente tiene (los fotogramas son de 468 px de ancho).
+    // píxeles de los que la fuente tiene (los fotogramas son de 880 px de ancho).
     const medir = () => {
       const dpr = Math.min(2, window.devicePixelRatio || 1)
       canvas.width = Math.round(window.innerWidth * dpr)
@@ -84,19 +84,16 @@ export default function TreeSequence({ reducedMotion }) {
         return
       }
       raf = requestAnimationFrame(dibujar)
-      const i = Math.floor(f)
-      const t = f - i
+      const i = Math.round(f)
       const a = marcos[i]
       if (!a) return
       actual = f
-      ctx.globalAlpha = 1
+      // SIN mezcla entre fotogramas. Superponer dos imágenes del árbol en
+      // movimiento produce un fantasma que se lee como desenfoque. Con 72
+      // fotogramas el salto entre uno y el siguiente ya es imperceptible, así
+      // que se dibuja solo el más cercano y la imagen queda siempre nítida.
+      // El suavizado lo aporta el lerp, no la transparencia.
       pintar(a)
-      const b = marcos[Math.min(N - 1, i + 1)]
-      if (b && t > 0.02) {
-        ctx.globalAlpha = t
-        pintar(b)
-        ctx.globalAlpha = 1
-      }
     }
     const pedirDibujo = () => { if (!raf) { ultimo = performance.now(); raf = requestAnimationFrame(dibujar) } }
 

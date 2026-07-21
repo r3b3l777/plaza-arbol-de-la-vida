@@ -30,7 +30,10 @@ const TreeBackground = lazy(() => import('./components/TreeBackground'))
 // siquiera se descargue en el teléfono.
 const TreeSequence = lazy(() => import('./components/TreeSequence'))
 const ES_MOVIL = typeof window !== 'undefined' &&
-  window.matchMedia('(max-width: 767px)').matches
+  window.matchMedia('(max-width: 767px)').matches &&
+  // En modo captura se fuerza el 3D: es la fuente de la que salen los
+  // fotogramas de la propia secuencia.
+  !new URLSearchParams(window.location.search).has('capture')
 
 // Interruptores de diagnóstico, solo por URL:
 //   ?no3d=1   monta la página SIN el árbol 3D  → aísla si el 3D es la causa
