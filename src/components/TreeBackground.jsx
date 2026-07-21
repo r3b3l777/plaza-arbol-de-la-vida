@@ -38,17 +38,36 @@ const CAPTURA = typeof window !== 'undefined' &&
  *
  *   0 · mínimo   dpr 1     · material estándar · 3 luces · sin bloom ni polvo
  *   1 · medio    dpr 1.3   · clearcoat         · 5 luces · sin bloom ni polvo
- *   2 · completo dpr 1.85  · clearcoat         · 7 luces · bloom + polvo
+ *   2 · completo dpr 1.5/1.85 · clearcoat      · 7 luces · bloom + polvo
  *
- * Por defecto: móvil → 1, escritorio → 2.
+ * El teléfono TAMBIÉN va al nivel completo: la escena se veía distinta ahí
+ * (sin partículas, sin halo, con dos luces menos) y el modelo es el mismo en
+ * ambos. Lo que cambia dentro del nivel 2 es solo la DENSIDAD: menos resolución
+ * y menos motas, que es donde el teléfono no nota la diferencia y sí nota el
+ * presupuesto de GPU. Ver `PRESUPUESTO_MOVIL` abajo.
  */
-function nivelCalidad(isMobile) {
+function nivelCalidad() {
   if (typeof window !== 'undefined') {
     const q = new URLSearchParams(window.location.search).get('q')
     if (q !== null && /^[012]$/.test(q)) return Number(q)
   }
-  return isMobile ? 1 : 2
+  return 2
 }
+
+/**
+ * De dónde sale el presupuesto para las partículas y el bloom en el teléfono.
+ *
+ * El coste de esta escena es de RELLENO: casi todo se paga por píxel. Así que
+ * lo que se añade en calidad visible (motas, halo, luces) se paga bajando cosas
+ * que a 460 ppi no se distinguen:
+ *
+ *   dpr 1.85 → 1.5   ~34 % menos píxeles en cada pasada, incluida la del bloom
+ *   1100 → 560 motas la nube se lee igual; el bucle JS por frame se parte a la mitad
+ *   cada 2 frames     las motas se desplazan 0.0004 por frame: a media cadencia
+ *                     el ojo no distingue el paso
+ *   70 → 42 sparkles  mismo criterio
+ */
+const PRESUPUESTO_MOVIL = { dpr: 1.5, motas: 560, cadencia: 2, sparkles: 42 }
 
 // Progreso → factores del recorrido. `gem` es la campana del zoom profundo
 // (0 arriba, 1 en el punto microscópico, 0 al formarse) que dispara el look gema.
@@ -504,11 +523,48 @@ function ReadySignal({ onReady }) {
 }
 
 
+/**
+ * Suavizado del progreso de scroll — SOLO en el teléfono.
+ *
+ * En escritorio el recorrido nunca recibe el scroll crudo: Lenis interpola
+ * `window.scrollY` con lerp 0.1, así que lo que llega ya es continuo. En el
+ * teléfono Lenis deja el scroll táctil en manos del sistema (`syncTouch` es
+ * `false` por defecto, y activarlo secuestra la inercia nativa de iOS), así que
+ * el progreso avanza a saltos del tamaño que traiga cada evento de scroll —
+ * irregulares por definición durante el desplazamiento con inercia.
+ *
+ * La cámara ya se amortigua sola, pero el resto del recorrido (FOV, color del
+ * metal, intensidad del bloom, giro del modelo) leía `p` directo y heredaba
+ * esos saltos. Interpolando aquí, en un solo sitio, todo lo que depende del
+ * progreso se vuelve continuo — y un frame perdido deja de verse como un tirón,
+ * porque el valor sigue viajando hacia su destino en vez de teletransportarse.
+ *
+ * Constante de tiempo 90 ms: lo bastante corto para que siga pegado al dedo,
+ * lo bastante largo para comerse la irregularidad entre eventos.
+ */
+function SuavizadoDeScroll({ scrollRef, targetRef }) {
+  useFrame((_, delta) => {
+    const objetivo = targetRef.current
+    const brecha = objetivo - scrollRef.current
+    // Salto grande = no es scroll, es un salto de ancla o la vuelta de una
+    // pestaña oculta (donde el frameloop estuvo parado). Ahí se encaja seco:
+    // interpolar un tramo largo se vería como un barrido que nadie pidió.
+    if (Math.abs(brecha) > 0.25) {
+      scrollRef.current = objetivo
+      return
+    }
+    // `delta` se acota: tras un frame muy largo, un k cercano a 1 anularía el
+    // suavizado justo cuando más falta hace.
+    scrollRef.current += brecha * (1 - Math.exp(-Math.min(delta, 0.05) / 0.09))
+  })
+  return null
+}
+
 export default function TreeBackground({ reducedMotion }) {
   const [isMobile] = useState(
     () => typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches
   )
-  const [nivel] = useState(() => nivelCalidad(isMobile))
+  const [nivel] = useState(() => nivelCalidad())
   const [visible, setVisible] = useState(true)
   useEffect(() => {
     const onVis = () => setVisible(!document.hidden)
@@ -518,6 +574,10 @@ export default function TreeBackground({ reducedMotion }) {
 
   // Progreso de scroll compartido (0 arriba → 1 al formarse en #visita)
   const scrollRef = useRef(0)
+  // Valor crudo del scroll, antes de suavizar. En escritorio es el mismo: lo
+  // que llega ya viene interpolado por Lenis. Ver `SuavizadoDeScroll`.
+  const scrollTargetRef = useRef(0)
+  const suavizarScroll = isMobile && !reducedMotion
   useEffect(() => {
     // El punto donde el recorrido llega a 1 se MIDE aparte y se guarda. Antes
     // se recalculaba con getBoundingClientRect en cada evento de scroll, lo que
@@ -526,7 +586,11 @@ export default function TreeBackground({ reducedMotion }) {
     // `window.scrollY`, que no toca el layout.
     let denom = 1
     const read = () => {
-      scrollRef.current = Math.min(1, Math.max(0, window.scrollY / denom))
+      const v = Math.min(1, Math.max(0, window.scrollY / denom))
+      scrollTargetRef.current = v
+      // Sin suavizado, el recorrido consume el valor crudo tal cual (escritorio:
+      // Lenis ya lo entrega interpolado).
+      if (!suavizarScroll) scrollRef.current = v
     }
     const measure = () => {
       const vh = window.innerHeight
@@ -559,14 +623,18 @@ export default function TreeBackground({ reducedMotion }) {
       window.removeEventListener('resize', scheduleMeasure)
       window.removeEventListener('load', scheduleMeasure)
     }
-  }, [])
+  }, [suavizarScroll])
 
   // Gancho de captura (?capture=1): permite fijar el progreso del recorrido
   // desde fuera para pre-renderizar los fotogramas del móvil. Solo se instala
   // con el parámetro puesto; en producción no existe.
   useEffect(() => {
     if (!new URLSearchParams(window.location.search).has('capture')) return
-    window.__setP = (v) => { scrollRef.current = Math.max(0, Math.min(1, v)) }
+    window.__setP = (v) => {
+      const p = Math.max(0, Math.min(1, v))
+      scrollRef.current = p
+      scrollTargetRef.current = p // sin esto el suavizado lo arrastraría de vuelta
+    }
     window.__ready = true
   }, [])
 
@@ -689,11 +757,12 @@ export default function TreeBackground({ reducedMotion }) {
         transition: reducedMotion ? 'none' : 'opacity 900ms cubic-bezier(0.22, 1, 0.36, 1)',
       }}
     >
-      {/* dpr 1.75 en móvil: se ve nítido y pinta ~23 % menos píxeles que a 2 */}
       <Canvas
         // Resolución por nivel. Es la palanca más bruta: el coste va con el
         // número de píxeles, así que de 1.85 a 1 hay casi 3,5× de diferencia.
-        dpr={[1, [1, 1.3, 1.85][nivel]]}
+        // En el nivel completo el teléfono va a 1.5 en vez de 1.85: eso es lo
+        // que paga sus partículas y su bloom (ver PRESUPUESTO_MOVIL).
+        dpr={[1, nivel === 2 && isMobile ? PRESUPUESTO_MOVIL.dpr : [1, 1.3, 1.85][nivel]]}
         camera={{ position: [0, 0.55, 1.75], fov: 42 }}
         gl={{
           antialias: true,
@@ -707,6 +776,11 @@ export default function TreeBackground({ reducedMotion }) {
         }}
         frameloop={frameloop}
       >
+        {/* Primero de todo: el resto del árbol consume `scrollRef` en el mismo
+            frame, y los useFrame corren en orden de montaje. */}
+        {suavizarScroll && (
+          <SuavizadoDeScroll scrollRef={scrollRef} targetRef={scrollTargetRef} />
+        )}
         <color attach="background" args={['#14181e']} />
         <fog attach="fog" args={['#14181e', 6, 13]} />
         {/* Iluminación adelgazada de 10 luces a 7. El material (physical con
@@ -732,17 +806,28 @@ export default function TreeBackground({ reducedMotion }) {
           <Float speed={reducedMotion || CAPTURA ? 0 : 0.7} rotationIntensity={0} floatIntensity={reducedMotion || CAPTURA ? 0 : 0.15}>
             <LogoTree reducedMotion={reducedMotion} scrollRef={scrollRef} pointerRef={pointerRef} isMobile={isMobile} nivel={nivel} onGeometryReady={onGeometryReady} />
           </Float>
-          {/* Micro-polvo también en móvil, con menos motas y a media cadencia */}
           <ReadySignal onReady={onReady} />
-          {/* Partículas solo en el nivel completo: son cientos de puntos con
-              mezcla ADITIVA y sin escritura de profundidad, o sea relleno
-              transparente acumulado sobre el árbol — de lo más caro en una GPU
-              móvil — más un bucle JS por frame. */}
+          {/* Partículas del nivel completo, en escritorio y en teléfono. Son
+              cientos de puntos con mezcla ADITIVA y sin escritura de
+              profundidad, o sea relleno transparente acumulado sobre el árbol,
+              más un bucle JS por frame. En móvil van a la mitad de motas y a
+              media cadencia: la nube se lee igual y el bucle cuesta la mitad. */}
           {nivel >= 2 && (
-            <MicroDust reducedMotion={reducedMotion} count={1100} everyNthFrame={1} />
+            <MicroDust
+              reducedMotion={reducedMotion}
+              count={isMobile ? PRESUPUESTO_MOVIL.motas : 1100}
+              everyNthFrame={isMobile ? PRESUPUESTO_MOVIL.cadencia : 1}
+            />
           )}
           {nivel >= 2 && !reducedMotion && (
-            <Sparkles count={70} scale={[7, 9, 4]} size={1.4} speed={0.2} color="#dbe3f0" opacity={0.4} />
+            <Sparkles
+              count={isMobile ? PRESUPUESTO_MOVIL.sparkles : 70}
+              scale={[7, 9, 4]}
+              size={1.4}
+              speed={0.2}
+              color="#dbe3f0"
+              opacity={0.4}
+            />
           )}
           {isMobile ? (
             // iOS/WebKit (Safari y Chrome iOS) no genera bien el envMap desde una
