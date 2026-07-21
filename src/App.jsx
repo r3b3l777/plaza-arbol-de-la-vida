@@ -41,6 +41,21 @@ function App() {
     const start = () => {
       if (done) return
       done = true
+      // Los assets del 3D se piden A LA VEZ que el chunk de three.js, no
+      // después. Antes iban en serie: hasta que el chunk (≈295 KB gzip) no se
+      // había descargado Y ejecutado, el navegador ni sabía que existían el GLB
+      // y el HDR. En móvil eso son dos viajes de red encadenados de más.
+      // El HDR solo lo usa la ruta móvil (escritorio ilumina con Lightformers),
+      // así que en escritorio no se pide.
+      const urls = ['/models/arbol-logo.glb']
+      if (window.matchMedia('(max-width: 767px)').matches) {
+        urls.push('/hdr/studio-small.hdr')
+      }
+      for (const u of urls) {
+        // Se consume el cuerpo para que la respuesta entre en la caché HTTP y
+        // la petición real del componente la encuentre ya servida.
+        fetch(u).then((r) => r.arrayBuffer()).catch(() => {})
+      }
       setMount3D(true)
     }
     // requestIdleCallback = "cuando el hilo principal esté libre"; el timeout

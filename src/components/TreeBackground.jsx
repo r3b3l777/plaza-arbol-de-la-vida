@@ -166,18 +166,56 @@ function LogoTree({ reducedMotion, scrollRef, pointerRef, isMobile }) {
   // solo serviría para provocar un salto visible a cambio de nada.
   useEffect(() => {
     if (!jobs.length) return
+    let vivo = true
+    let pendientes = jobs.length
+
+    // Plan B: si el worker no arranca o falla, la subdivisión se hace en el
+    // hilo principal pero en un hueco libre (`requestIdleCallback`), no durante
+    // el render. Cuesta ~700 ms de CPU en un teléfono, así que no es gratis —
+    // pero la alternativa es dejar el árbol facetado PARA SIEMPRE, que se ve
+    // como si el modelo no hubiera cargado bien.
+    // `three-subdivide` se importa aquí dentro a propósito: así solo se
+    // descarga si de verdad hace falta y no engorda el chunk del 3D.
+    const planB = () => {
+      if (!vivo) return
+      const correr = async () => {
+        const { LoopSubdivision } = await import('three-subdivide')
+        if (!vivo) return
+        for (const { mesh, position, index } of jobs) {
+          const g = new THREE.BufferGeometry()
+          g.setAttribute('position', new THREE.BufferAttribute(position, 3))
+          if (index) g.setIndex(new THREE.BufferAttribute(index, 1))
+          const out = LoopSubdivision.modify(g, 1, {
+            split: true, uvSmooth: true, preserveEdges: false, maxTriangles: 250000,
+          })
+          out.computeVertexNormals()
+          const anterior = mesh.geometry
+          mesh.geometry = out
+          anterior.dispose()
+        }
+      }
+      const ric = window.requestIdleCallback
+      if (ric) ric(correr, { timeout: 3000 })
+      else setTimeout(correr, 300)
+    }
+
     let worker
     try {
       worker = new Worker(new URL('../lib/subdivide.worker.js', import.meta.url), {
         type: 'module',
       })
     } catch {
-      // Sin workers el árbol se queda en la malla base: peor acabado, pero
-      // jamás una página congelada. Es la degradación correcta.
+      planB()
       return
     }
-    let vivo = true
-    let pendientes = jobs.length
+    // Un worker que no carga (MIME, CSP, Safari viejo sin workers de módulo) NO
+    // lanza en el `new`: avisa por `onerror` más tarde. Sin esto el fallo era
+    // silencioso y el árbol se quedaba basto sin que nada lo delatara.
+    worker.onerror = () => {
+      if (!vivo || pendientes === 0) return
+      worker.terminate()
+      planB()
+    }
     worker.onmessage = (e) => {
       if (!vivo) return
       const { id, position, normal } = e.data
@@ -190,9 +228,12 @@ function LogoTree({ reducedMotion, scrollRef, pointerRef, isMobile }) {
       anterior.dispose()
       if (--pendientes === 0) worker.terminate()
     }
+    // SIN lista de transferibles: si se cedieran los búferes, quedarían
+    // `detached` y el plan B se quedaría sin datos con los que trabajar cuando
+    // el worker falle. Copiarlos cuesta ~120 KB — los arrays pesados (2.4 MB)
+    // son los de VUELTA, y esos sí viajan transferidos desde el worker.
     jobs.forEach((j, id) => {
-      worker.postMessage({ id, position: j.position, index: j.index },
-        j.index ? [j.position.buffer, j.index.buffer] : [j.position.buffer])
+      worker.postMessage({ id, position: j.position, index: j.index })
     })
     return () => {
       vivo = false
