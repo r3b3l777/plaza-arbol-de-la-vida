@@ -109,6 +109,44 @@ const PASOS_MOVIL = [
 ]
 
 /**
+ * LIMITADOR DE FOTOGRAMAS — 60 fps fijos, con techo de 144 Hz.
+ *
+ * Por defecto three renderiza a la frecuencia de la pantalla. En un iPhone con
+ * ProMotion eso son 120 Hz: el DOBLE de trabajo de GPU cada segundo, para una
+ * escena cuya animación se mueve lentísima y donde 60 y 120 son
+ * indistinguibles a simple vista. Ese trabajo de más no es gratis — calienta el
+ * teléfono, y un teléfono caliente baja su propia frecuencia y ahí sí se nota.
+ *
+ * Fijando 60 se libera la mitad del presupuesto de GPU, que es exactamente lo
+ * que hace que el resto vaya estable en vez de a tirones.
+ *
+ * Funciona con `frameloop="never"`: r3f no dibuja por su cuenta y aquí se le
+ * pide un frame con `advance()` solo cuando toca. El margen de 1 ms evita que
+ * un redondeo del reloj haga perder un frame entero y el ritmo se vaya a 30.
+ */
+const FPS_OBJETIVO = 60
+const FPS_TECHO = 144
+
+function LimitadorDeFPS({ activo, fps = FPS_OBJETIVO }) {
+  const advance = useThree((s) => s.advance)
+  useEffect(() => {
+    if (!activo) return
+    const intervalo = 1000 / Math.min(FPS_TECHO, fps)
+    let raf
+    let ultimo = -Infinity
+    const bucle = (t) => {
+      raf = requestAnimationFrame(bucle)
+      if (t - ultimo < intervalo - 1) return
+      ultimo = t
+      advance(t)
+    }
+    raf = requestAnimationFrame(bucle)
+    return () => cancelAnimationFrame(raf)
+  }, [activo, advance, fps])
+  return null
+}
+
+/**
  * Vigila los tiempos de frame y avisa cuando el aparato no da abasto.
  *
  * Se mide en bloques de 45 frames (~0.75 s) en vez de frame a frame: un tirón
@@ -740,7 +778,10 @@ export default function TreeBackground({ reducedMotion }) {
     }
   }, [reducedMotion, isMobile])
 
-  const frameloop = reducedMotion || !visible ? 'demand' : 'always'
+  // `never`: el bucle lo lleva LimitadorDeFPS, que pide un frame a 60 Hz en vez
+  // de dejar que three siga la frecuencia de la pantalla (120 Hz en ProMotion).
+  // Con reduced-motion o la pestaña oculta, simplemente no se pide ninguno.
+  const animando = !reducedMotion && visible
 
   // Fade del telón estático al 3D. El canvas pinta el MISMO color de fondo
   // (#14181e) que StaticBackdrop, así que lo único que aparece es el árbol.
@@ -828,10 +869,11 @@ export default function TreeBackground({ reducedMotion }) {
           toneMappingExposure: 1.15,
           outputColorSpace: THREE.SRGBColorSpace,
         }}
-        frameloop={frameloop}
+        frameloop="never"
       >
         {/* Primero de todo: el resto del árbol consume `scrollRef` en el mismo
             frame, y los useFrame corren en orden de montaje. */}
+        <LimitadorDeFPS activo={animando} />
         {suavizarScroll && (
           <SuavizadoDeScroll scrollRef={scrollRef} targetRef={scrollTargetRef} />
         )}

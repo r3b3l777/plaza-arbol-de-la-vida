@@ -24,11 +24,12 @@ export default function Lease() {
   const [videoNear, setVideoNear] = useState(false)
   useEffect(() => {
     if (reducedMotion || !shellRef.current) return
-    // MÓVIL: el video no se carga nunca; se queda el póster, que es la misma
-    // imagen. Son 384 KB y un decodificador de vídeo corriendo en bucle detrás
-    // del contenido, para una textura de fondo que en una pantalla de teléfono
-    // apenas se distingue de la foto fija.
-    if (window.matchMedia('(max-width: 767px)').matches) return
+    // El teléfono TAMBIÉN reproduce la textura. Antes se saltaba en móvil para
+    // ahorrar 384 KB y el decodificador, pero se pedía expresamente que se
+    // reprodujera sola: la decodificación de vídeo va por hardware y no compite
+    // con el presupuesto de GPU del árbol como lo haría dibujar más píxeles.
+    // El IntersectionObserver se mantiene, así que sigue sin bajarse hasta que
+    // la sección se acerca.
     const io = new IntersectionObserver(
       ([e]) => {
         if (e.isIntersecting) {
@@ -100,6 +101,11 @@ export default function Lease() {
                 muted
                 loop
                 playsInline
+                // iOS en modo de bajo consumo IGNORA autoPlay aunque el vídeo
+                // esté silenciado. Se le pide arrancar a mano en cuanto hay
+                // datos; si el sistema se niega, se queda el póster (que es la
+                // misma imagen) en vez de un hueco.
+                onLoadedData={(e) => { e.currentTarget.play?.().catch(() => {}) }}
                 preload="metadata"
                 aria-hidden="true"
                 className="absolute inset-0 h-full w-full object-cover opacity-25 pointer-events-none"
