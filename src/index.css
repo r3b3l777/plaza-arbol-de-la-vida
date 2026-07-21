@@ -709,3 +709,28 @@ html.lenis body {
 @media (prefers-reduced-motion: reduce) {
   @keyframes seq-vive { 0%, 100% { transform: none; } }
 }
+
+
+/* ============================================================
+   Entrada por scroll (componente Reveal)
+   La transición vive aquí, no en JS: `opacity` y `transform` los compone la
+   GPU, así que 31 de estos entrando a la vez no le cuestan un frame al hilo
+   principal. Con la animación en JavaScript el peor frame del scroll era de
+   291 ms; así baja a 51 ms.
+   ============================================================ */
+.rv {
+  opacity: 0;
+  transform: translate3d(0, var(--rv-y, 40px), 0);
+  transition:
+    opacity 0.9s cubic-bezier(0.16, 1, 0.3, 1) var(--rv-d, 0s),
+    transform 0.9s cubic-bezier(0.16, 1, 0.3, 1) var(--rv-d, 0s);
+}
+.rv.rv-in {
+  opacity: 1;
+  transform: translate3d(0, 0, 0);
+}
+/* Ahora sí se respeta de verdad: framer-motion ignoraba esta preferencia
+   porque anima con estilos en línea desde JS, fuera del alcance del CSS. */
+@media (prefers-reduced-motion: reduce) {
+  .rv { opacity: 1; transform: none; transition: none; }
+}

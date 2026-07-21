@@ -28,8 +28,7 @@ export default function TreeSequence({ reducedMotion }) {
     const ctx = canvas.getContext('2d', { alpha: false })
 
     const marcos = new Array(N)
-    let cargados = 0
-    let actual = -1
+    let actual = -99
     let progreso = 0
     let raf = 0
     let vivo = true
@@ -40,7 +39,7 @@ export default function TreeSequence({ reducedMotion }) {
       const dpr = Math.min(2, window.devicePixelRatio || 1)
       canvas.width = Math.round(window.innerWidth * dpr)
       canvas.height = Math.round(window.innerHeight * dpr)
-      actual = -1 // fuerza redibujado
+      actual = -99 // fuerza redibujado
     }
 
     // Encaje tipo `object-fit: cover`, calculado a mano porque drawImage no lo
@@ -52,14 +51,30 @@ export default function TreeSequence({ reducedMotion }) {
       ctx.drawImage(img, (cw - w) / 2, (ch - h) / 2, w, h)
     }
 
+    // Mezcla de fotogramas contiguos. Con 40 imágenes sueltas el recorrido se
+    // ve a saltos —stop-motion—, porque el scroll es continuo y las imágenes no.
+    // Dibujando el fotograma actual y encima el siguiente con la opacidad de la
+    // fracción, el movimiento se vuelve continuo sin añadir ni un byte. Son dos
+    // drawImage por frame: sigue siendo copiar mapas de bits.
     const dibujar = () => {
       raf = 0
-      const i = Math.min(N - 1, Math.max(0, Math.round(progreso * (N - 1))))
-      if (i === actual) return
-      const img = marcos[i]
-      if (!img || !img.complete) return
-      actual = i
-      pintar(img)
+      const f = Math.min(N - 1, Math.max(0, progreso * (N - 1)))
+      // Se redibuja solo si el avance es apreciable (1/6 de fotograma): evita
+      // repintar por micro-movimientos del scroll.
+      if (Math.abs(f - actual) < 0.16) return
+      const i = Math.floor(f)
+      const t = f - i
+      const a = marcos[i]
+      if (!a) return
+      actual = f
+      ctx.globalAlpha = 1
+      pintar(a)
+      const b = marcos[Math.min(N - 1, i + 1)]
+      if (b && t > 0.02) {
+        ctx.globalAlpha = t
+        pintar(b)
+        ctx.globalAlpha = 1
+      }
     }
     const pedirDibujo = () => { if (!raf) raf = requestAnimationFrame(dibujar) }
 
@@ -87,17 +102,26 @@ export default function TreeSequence({ reducedMotion }) {
     // === carga ===
     // El primero se pide solo y en cuanto llega se pinta y aparece el fondo.
     // El resto va detrás, en orden, para no abrir 40 conexiones a la vez.
-    const cargar = (i) =>
-      new Promise((resolve) => {
-        const img = new Image()
-        img.decoding = 'async'
-        img.onload = img.onerror = () => {
-          marcos[i] = img
-          cargados++
-          resolve()
-        }
-        img.src = SRC(i)
-      })
+    // `createImageBitmap` decodifica FUERA del hilo principal y devuelve algo
+    // que drawImage ya puede copiar sin trabajo extra. Con <img> normal la
+    // decodificación cae en el hilo principal justo mientras se hace scroll, y
+    // ahí es donde aparecían los tirones: medido con la CPU frenada 6×, los
+    // peores frames del recorrido coincidían con las decodificaciones.
+    const cargar = async (i) => {
+      try {
+        const r = await fetch(SRC(i))
+        const blob = await r.blob()
+        marcos[i] = await createImageBitmap(blob)
+      } catch {
+        // Navegador sin createImageBitmap (o fallo de red): se cae a <img>.
+        await new Promise((resolve) => {
+          const img = new Image()
+          img.decoding = 'async'
+          img.onload = img.onerror = () => { marcos[i] = img; resolve() }
+          img.src = SRC(i)
+        })
+      }
+    }
 
     ;(async () => {
       await cargar(0)
