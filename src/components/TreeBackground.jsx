@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
-import { Environment, Float, Lightformer, Sparkles, useGLTF } from '@react-three/drei'
+import { Environment, Float, Lightformer, Preload, Sparkles, useGLTF } from '@react-three/drei'
 import * as THREE from 'three'
 
 /**
@@ -68,6 +68,64 @@ function nivelCalidad() {
  *   70 → 42 sparkles  mismo criterio
  */
 const PRESUPUESTO_MOVIL = { dpr: 1.5, motas: 560, cadencia: 2, sparkles: 42 }
+
+/**
+ * ESCALERA DE CALIDAD EN MÓVIL — el teléfono decide, no la tabla de arriba.
+ *
+ * `PRESUPUESTO_MOVIL` es una apuesta: que un teléfono cualquiera aguante la
+ * escena completa a dpr 1.5. En los que no la aguantan se notaba en los dos
+ * momentos de más relleno — al aparecer el árbol y al final, cuando la cámara
+ * retrocede y el logo pasa a ocupar toda la pantalla con el dorado encendido.
+ *
+ * En vez de bajar la calidad para todos por si acaso, se empieza arriba y se
+ * baja un escalón cada vez que el aparato demuestra que no puede. El orden es
+ * de menos a más visible: primero resolución, luego el halo, y solo al final
+ * las partículas. Nunca se sube: subir y bajar en bucle se ve peor que
+ * quedarse abajo, y un escalón de menos no se nota; una oscilación sí.
+ */
+const PASOS_MOVIL = [
+  { dpr: 1.5, bloom: true, polvo: true }, // lo que se ve hoy
+  { dpr: 1.25, bloom: true, polvo: true }, // ~30 % menos píxeles
+  { dpr: 1.25, bloom: false, polvo: true }, // fuera las pasadas de post-proceso
+  { dpr: 1.15, bloom: false, polvo: false }, // último recurso: escena limpia
+]
+
+/**
+ * Vigila los tiempos de frame y avisa cuando el aparato no da abasto.
+ *
+ * Se mide en bloques de 45 frames (~0.75 s) en vez de frame a frame: un tirón
+ * suelto no significa nada — lo que importa es que la lentitud se sostenga. Se
+ * mira el percentil 90 y no la media, porque lo que se siente como "se traba"
+ * son los frames malos, no el promedio.
+ *
+ * El sesgo es DELIBERADAMENTE agresivo, porque los dos errores no cuestan lo
+ * mismo: equivocarse bajando cuesta un escalón que casi no se ve (el primero es
+ * solo resolución), y equivocarse NO bajando cuesta justo lo que no puede
+ * pasar — que el teléfono se trabe. Ante la duda, se baja.
+ *
+ * Los primeros bloques se descartan: justo después de montar se están
+ * compilando shaders y subiendo geometría, y ahí SIEMPRE hay frames largos.
+ * Bajar la calidad por eso sería castigar a todos los teléfonos.
+ */
+function VigilanteDeCalidad({ onBajar }) {
+  const muestras = useRef([])
+  const bloques = useRef(0)
+  useFrame((_, delta) => {
+    const m = muestras.current
+    m.push(delta)
+    if (m.length < 45) return
+    bloques.current++
+    m.sort((a, b) => a - b)
+    const p90 = m[Math.floor(m.length * 0.9)]
+    m.length = 0
+    // Se ignoran los dos primeros bloques (~1.5 s): son el arranque.
+    if (bloques.current <= 2) return
+    // 20 ms de p90 = por debajo de 50 fps en 1 de cada 10 frames. Es un listón
+    // exigente a propósito: el objetivo no es "aceptable", es que no se note.
+    if (p90 > 0.020) onBajar()
+  })
+  return null
+}
 
 // Progreso → factores del recorrido. `gem` es la campana del zoom profundo
 // (0 arriba, 1 en el punto microscópico, 0 al formarse) que dispara el look gema.
@@ -565,6 +623,18 @@ export default function TreeBackground({ reducedMotion }) {
     () => typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches
   )
   const [nivel] = useState(() => nivelCalidad())
+  // Escalón actual de la escalera de calidad (solo móvil, solo hacia abajo).
+  const [paso, setPaso] = useState(0)
+  const bajarCalidad = useCallback(() => {
+    setPaso((p) => Math.min(PASOS_MOVIL.length - 1, p + 1))
+  }, [])
+  const calidad = PASOS_MOVIL[paso]
+  // La escalera solo aplica a la ruta móvil en calidad completa: en escritorio
+  // no hay nada que degradar, y en los niveles forzados por `?q=` el usuario
+  // pidió un nivel concreto y no se le cambia por debajo.
+  const escalable = isMobile && nivel === 2
+  const conBloom = nivel >= 2 && (!escalable || calidad.bloom)
+  const conPolvo = nivel >= 2 && (!escalable || calidad.polvo)
   const [visible, setVisible] = useState(true)
   useEffect(() => {
     const onVis = () => setVisible(!document.hidden)
@@ -762,7 +832,7 @@ export default function TreeBackground({ reducedMotion }) {
         // número de píxeles, así que de 1.85 a 1 hay casi 3,5× de diferencia.
         // En el nivel completo el teléfono va a 1.5 en vez de 1.85: eso es lo
         // que paga sus partículas y su bloom (ver PRESUPUESTO_MOVIL).
-        dpr={[1, nivel === 2 && isMobile ? PRESUPUESTO_MOVIL.dpr : [1, 1.3, 1.85][nivel]]}
+        dpr={[1, escalable ? calidad.dpr : [1, 1.3, 1.85][nivel]]}
         camera={{ position: [0, 0.55, 1.75], fov: 42 }}
         gl={{
           antialias: true,
@@ -780,6 +850,11 @@ export default function TreeBackground({ reducedMotion }) {
             frame, y los useFrame corren en orden de montaje. */}
         {suavizarScroll && (
           <SuavizadoDeScroll scrollRef={scrollRef} targetRef={scrollTargetRef} />
+        )}
+        {/* Solo mientras quede algún escalón por bajar: cuando ya está abajo,
+            seguir midiendo es trabajo por frame que no puede cambiar nada. */}
+        {escalable && paso < PASOS_MOVIL.length - 1 && (
+          <VigilanteDeCalidad onBajar={bajarCalidad} />
         )}
         <color attach="background" args={['#14181e']} />
         <fog attach="fog" args={['#14181e', 6, 13]} />
@@ -812,14 +887,14 @@ export default function TreeBackground({ reducedMotion }) {
               profundidad, o sea relleno transparente acumulado sobre el árbol,
               más un bucle JS por frame. En móvil van a la mitad de motas y a
               media cadencia: la nube se lee igual y el bucle cuesta la mitad. */}
-          {nivel >= 2 && (
+          {conPolvo && (
             <MicroDust
               reducedMotion={reducedMotion}
               count={isMobile ? PRESUPUESTO_MOVIL.motas : 1100}
               everyNthFrame={isMobile ? PRESUPUESTO_MOVIL.cadencia : 1}
             />
           )}
-          {nivel >= 2 && !reducedMotion && (
+          {conPolvo && !reducedMotion && (
             <Sparkles
               count={isMobile ? PRESUPUESTO_MOVIL.sparkles : 70}
               scale={[7, 9, 4]}
@@ -848,13 +923,21 @@ export default function TreeBackground({ reducedMotion }) {
               <Lightformer intensity={1.6} form="circle" position={[0, -3, 2]} scale={5} color="#9fb2cc" />
             </Environment>
           )}
+          {/* Compila los shaders y sube la geometría a la GPU AQUÍ, dentro del
+              Suspense, en vez de dejar que ocurra en el primer frame visible.
+              El material es un physical con clearcoat iluminado por 7 luces:
+              su shader es de los caros de compilar, y en un teléfono eso son
+              cientos de ms de congelación justo cuando el árbol aparece. Al
+              montarse detrás de la intro, ese coste se paga mientras la intro
+              tapa la pantalla y el usuario no ve nada raro. */}
+          <Preload all />
         </Suspense>
 
         {/* El bloom son varias pasadas a pantalla completa (reducir,
             desenfocar, recomponer) que se pagan enteras cada frame. La viñeta
             ya existe en DOM, así que fuera del nivel completo solo se pierde el
             halo. */}
-        {nivel >= 2 && (
+        {conBloom && (
           <Suspense fallback={null}>
             <PostFX scrollRef={scrollRef} isMobile={isMobile} />
           </Suspense>
