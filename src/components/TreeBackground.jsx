@@ -474,7 +474,22 @@ function LogoTree({ reducedMotion, scrollRef, pointerRef, isMobile, nivel, onGeo
     const handY = live * (Math.sin(t * 0.7 + 1) * 0.009 + Math.sin(t * 1.4) * 0.004) * (0.35 + gem)
     const travelY = (0.55 - zoom * (isMobile ? 0.62 : 1.15) + handY) * (1 - reveal)
     camera.position.y += (travelY - camera.position.y) * k * 0.9
+    // Encuadre final en móvil: el logo se coloca ABAJO, no centrado.
+    //
+    // El canvas es un telón fijo a pantalla completa, así que el árbol se
+    // centraba verticalmente en el viewport. Pero cuando aparece "Te esperamos
+    // en el corazón de Metepec", la mitad superior de la pantalla todavía está
+    // cubierta por el panel blanco de la sección de renta: el árbol quedaba
+    // detrás de ese panel y solo asomaba el tronco. El logo entero no se veía
+    // hasta que el panel terminaba de subir — o sea, al final de la página.
+    // Eso era lo que se reportaba como "el árbol dorado carga al final".
+    //
+    // Mirando a un punto POR ENCIMA del árbol, el árbol cae por debajo del
+    // centro del encuadre, que es justo la mitad que sí está despejada. Solo en
+    // móvil: en escritorio la sección no tapa igual y el centrado es correcto.
+    const encuadreFinal = isMobile ? 0.42 : 0
     const lookY = (0.35 - zoom * (isMobile ? 0.50 : 0.95)) * (1 - reveal)
+      + encuadreFinal * reveal
     camera.lookAt(0, lookY, 0)
 
     // Dolly-zoom sutil (vértigo Hitchcock): el FOV se abre en lo más profundo
@@ -853,9 +868,20 @@ export default function TreeBackground({ reducedMotion }) {
   const shellRef = useRef(null)
   const pintado = useRef(false)
   const afinado = useRef(false)
+  const avisado = useRef(false)
   const mostrar = useCallback(() => {
     if (pintado.current && afinado.current && shellRef.current) {
       shellRef.current.style.opacity = '1'
+      // Este es el instante en que ya no queda NADA por cargar del 3D: chunk
+      // ejecutado, GLB parseado, materiales construidos, shaders compilados y
+      // la malla fina en su sitio. La intro escucha este aviso para no quitarse
+      // de en medio antes de tiempo: si se quitara antes, todo ese trabajo
+      // caería encima de su animación de salida, que es justo el tirón que se
+      // reportaba al pulsar "Entrar" o "sin sonido".
+      if (!avisado.current) {
+        avisado.current = true
+        window.dispatchEvent(new Event('plaza:3d-listo'))
+      }
     }
   }, [])
   const onReady = useCallback(() => {

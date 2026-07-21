@@ -33,14 +33,36 @@ export default function Intro({ reducedMotion }) {
     setOpen(false)
   }, [])
 
-  // Marca la animación como lista para invitar a entrar. El audio ya NO se
-  // pre-carga aquí: eran ~688 KB compitiendo con la primera pintura. Los mp3
-  // empiezan a bajar en el gesto de "Entrar con sonido" (ver brandAudio).
+  // La intro es, de hecho, la pantalla de carga del sitio: mientras está puesta
+  // se monta el árbol 3D por detrás. Por eso NO se invita a entrar solo porque
+  // haya terminado su animación — hace falta además que el 3D avise de que ya
+  // no le queda nada por cargar (`plaza:3d-listo`, que emite TreeBackground
+  // cuando el chunk, el GLB, los materiales, los shaders y la malla fina están
+  // todos listos).
+  //
+  // Antes bastaban 1450 ms de animación, así que quien entraba rápido se
+  // llevaba el montaje entero encima de la animación de salida. De ahí el tirón
+  // al pulsar "Entrar" o al entrar sin sonido.
+  //
+  // El techo de 6 s es innegociable: si el 3D tarda o falla, la intro se abre
+  // igual. Nunca se deja al usuario encerrado esperando a un fondo decorativo.
+  const [animLista, setAnimLista] = useState(false)
+  const [tresDListo, setTresDListo] = useState(false)
   useEffect(() => {
     if (!open) return
-    const t = setTimeout(() => setReady(true), 1450)
-    return () => clearTimeout(t)
+    const t = setTimeout(() => setAnimLista(true), 1450)
+    const techo = setTimeout(() => setTresDListo(true), 6000)
+    const aviso = () => setTresDListo(true)
+    window.addEventListener('plaza:3d-listo', aviso, { once: true })
+    return () => {
+      clearTimeout(t)
+      clearTimeout(techo)
+      window.removeEventListener('plaza:3d-listo', aviso)
+    }
   }, [open])
+  useEffect(() => {
+    if (animLista && tresDListo) setReady(true)
+  }, [animLista, tresDListo])
 
   // Escape = entrar en silencio (accesibilidad)
   useEffect(() => {

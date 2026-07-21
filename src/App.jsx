@@ -41,11 +41,19 @@ function App() {
   // Smooth scroll con inercia en todo el sitio (nativo si reduced-motion)
   useLenis(!reducedMotion)
 
-  // El 3D (chunk de three.js + GLB + HDR) no se toca hasta que la página ya
-  // está pintada e interactiva. Antes se montaba con un setTimeout fijo y el
-  // GLB además se precargaba desde el <head>, así que competía con la primera
-  // pintura. Ahora arranca en el primer hueco libre del hilo principal, o en
-  // cuanto el usuario entra por la intro — lo que ocurra primero.
+  // El 3D arranca DURANTE la intro, no al salir de ella.
+  //
+  // Antes esperaba a un hueco libre del hilo principal (timeout 2000 ms) o al
+  // evento de entrada, lo que llegara primero. El problema: la intro se deja
+  // pulsar a los 1450 ms, así que quien entraba rápido disparaba el montaje
+  // ENTERO —ejecutar el chunk, parsear el GLB, construir materiales, crear el
+  // contexto WebGL y compilar shaders— justo encima de la animación de salida
+  // de la intro. Ese era el tirón que se notaba al pulsar "Entrar" o al entrar
+  // sin sonido.
+  //
+  // Ahora se monta a los 400 ms, en cuanto la intro ya pintó su primer frame, y
+  // la intro no se quita hasta recibir `plaza:3d-listo`. Entre las dos cosas,
+  // cuando la intro desaparece no queda nada por cargar.
   const [mount3D, setMount3D] = useState(false)
   useEffect(() => {
     if (SIN_3D) return
@@ -72,20 +80,16 @@ function App() {
       fetch(u, { priority: 'low' }).then((r) => r.arrayBuffer()).catch(() => {})
     }
 
-    // requestIdleCallback = "cuando el hilo principal esté libre"; el timeout
-    // es la red de seguridad para navegadores ocupados (y Safari, que no lo
-    // implementa). En Safari la espera fija baja de 800 a 400 ms: los assets ya
-    // van descargándose por su cuenta, así que arrancar antes no le quita ancho
-    // de banda a la primera pintura, solo adelanta la compilación de shaders.
-    const ric = window.requestIdleCallback
-    const idle = ric ? ric(start, { timeout: 2000 }) : null
-    const timer = setTimeout(start, ric ? 2500 : 400)
-    // La intro emite este evento al entrar (con o sin sonido).
+    // 400 ms: lo justo para que la intro pinte su entrada sin competir con
+    // ella. No se espera a `requestIdleCallback` porque durante el arranque el
+    // hilo principal nunca está ocioso de verdad, así que en la práctica
+    // siempre acababa cayendo en su timeout — tarde.
+    const timer = setTimeout(start, 400)
+    // Suelo: si alguien entra antes de los 400 ms, se monta en ese momento.
     window.addEventListener('plaza:enter', start, { once: true })
     return () => {
       done = true
       clearTimeout(timer)
-      if (idle != null && window.cancelIdleCallback) window.cancelIdleCallback(idle)
       window.removeEventListener('plaza:enter', start)
     }
   }, [])
