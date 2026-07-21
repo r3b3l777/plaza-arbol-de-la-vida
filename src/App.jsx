@@ -16,6 +16,7 @@ import WhatsAppFloat from './components/WhatsAppFloat'
 import SoundToggle from './components/SoundToggle'
 import Intro from './components/Intro'
 import CustomCursor from './components/CustomCursor'
+import PerfHUD from './components/PerfHUD'
 import CinematicOverlay from './components/CinematicOverlay'
 import StaticBackdrop from './components/StaticBackdrop'
 import useReducedMotion from './hooks/useReducedMotion'
@@ -24,6 +25,15 @@ import useLenis from './hooks/useLenis'
 // three.js pesa ~1 MB: se separa en su propio chunk y carga en paralelo,
 // por debajo del contenido, sin bloquear el primer render.
 const TreeBackground = lazy(() => import('./components/TreeBackground'))
+
+// Interruptores de diagnóstico, solo por URL:
+//   ?no3d=1   monta la página SIN el árbol 3D  → aísla si el 3D es la causa
+//   ?debug=1  muestra fps y peor frame del último segundo
+const params = typeof window !== 'undefined'
+  ? new URLSearchParams(window.location.search)
+  : new URLSearchParams()
+const SIN_3D = params.get('no3d') === '1'
+const CON_HUD = params.get('debug') === '1'
 
 function App() {
   const reducedMotion = useReducedMotion()
@@ -37,6 +47,7 @@ function App() {
   // cuanto el usuario entra por la intro — lo que ocurra primero.
   const [mount3D, setMount3D] = useState(false)
   useEffect(() => {
+    if (SIN_3D) return
     let done = false
     const start = () => {
       if (done) return
@@ -85,7 +96,7 @@ function App() {
 
       {/* Árbol de la Vida 3D — telón continuo fijo detrás de toda la página.
           Aparece con un fade sobre el telón estático al estar listo. */}
-      {mount3D && (
+      {mount3D && !SIN_3D && (
         <Suspense fallback={null}>
           <TreeBackground reducedMotion={reducedMotion} />
         </Suspense>
@@ -113,6 +124,7 @@ function App() {
       <WhatsAppFloat />
       <SoundToggle />
       <CustomCursor reducedMotion={reducedMotion} />
+      {CON_HUD && <PerfHUD />}
     </>
   )
 }
