@@ -78,16 +78,29 @@ const PRESUPUESTO_MOVIL = { dpr: 1.5, motas: 560, cadencia: 2, sparkles: 42 }
  * retrocede y el logo pasa a ocupar toda la pantalla con el dorado encendido.
  *
  * En vez de bajar la calidad para todos por si acaso, se empieza arriba y se
- * baja un escalón cada vez que el aparato demuestra que no puede. El orden es
- * de menos a más visible: primero resolución, luego el halo, y solo al final
- * las partículas. Nunca se sube: subir y bajar en bucle se ve peor que
- * quedarse abajo, y un escalón de menos no se nota; una oscilación sí.
+ * baja un escalón cada vez que el aparato demuestra que no puede. Nunca se
+ * sube: subir y bajar en bucle se ve peor que quedarse abajo.
+ *
+ * LA ESCALERA SOLO TOCA LA RESOLUCIÓN. Una versión anterior iba quitando el
+ * bloom y luego las partículas, y en un teléfono que llegó al último escalón el
+ * resultado fue el que había que evitar: la escena dejó de parecerse a la de
+ * escritorio. La escena es intocable — el teléfono tiene que ver lo mismo que
+ * el escritorio. Lo único que se sacrifica son píxeles, que a 460 ppi no se
+ * distinguen, y que además son la palanca MÁS fuerte: el coste de esta escena
+ * es de relleno, así que va casi lineal con el número de píxeles.
+ *
+ * Del primero al último hay 2,25× de diferencia de píxeles, con las mismas
+ * motas, el mismo halo y las mismas 7 luces en todos.
+ *
+ * Ojo al tocar esto: NO añadir aquí nada que cambie las props de <PostFX>. Sus
+ * props tienen que quedarse estables o se re-renderiza, y ahí vuelve el fallo
+ * del `ref` de <Bloom> que deja la página en blanco (ver PostFX.jsx).
  */
 const PASOS_MOVIL = [
-  { dpr: 1.5, bloom: true, polvo: true }, // lo que se ve hoy
-  { dpr: 1.25, bloom: true, polvo: true }, // ~30 % menos píxeles
-  { dpr: 1.25, bloom: false, polvo: true }, // fuera las pasadas de post-proceso
-  { dpr: 1.15, bloom: false, polvo: false }, // último recurso: escena limpia
+  { dpr: 1.5 }, // lo que se ve hoy
+  { dpr: 1.3 }, // ~25 % menos píxeles
+  { dpr: 1.15 }, // ~41 %
+  { dpr: 1.0 }, // ~56 %, último recurso
 ]
 
 /**
@@ -99,9 +112,11 @@ const PASOS_MOVIL = [
  * son los frames malos, no el promedio.
  *
  * El sesgo es DELIBERADAMENTE agresivo, porque los dos errores no cuestan lo
- * mismo: equivocarse bajando cuesta un escalón que casi no se ve (el primero es
- * solo resolución), y equivocarse NO bajando cuesta justo lo que no puede
- * pasar — que el teléfono se trabe. Ante la duda, se baja.
+ * mismo: equivocarse bajando cuesta píxeles que a 460 ppi no se distinguen, y
+ * equivocarse NO bajando cuesta justo lo que no puede pasar — que el teléfono
+ * se trabe. Ante la duda, se baja. Ahora que la escalera solo mueve resolución,
+ * el peor caso de un falso positivo es una imagen un punto menos fina, nunca
+ * una escena distinta.
  *
  * Los primeros bloques se descartan: justo después de montar se están
  * compilando shaders y subiendo geometría, y ahí SIEMPRE hay frames largos.
@@ -633,8 +648,6 @@ export default function TreeBackground({ reducedMotion }) {
   // no hay nada que degradar, y en los niveles forzados por `?q=` el usuario
   // pidió un nivel concreto y no se le cambia por debajo.
   const escalable = isMobile && nivel === 2
-  const conBloom = nivel >= 2 && (!escalable || calidad.bloom)
-  const conPolvo = nivel >= 2 && (!escalable || calidad.polvo)
   const [visible, setVisible] = useState(true)
   useEffect(() => {
     const onVis = () => setVisible(!document.hidden)
@@ -887,14 +900,14 @@ export default function TreeBackground({ reducedMotion }) {
               profundidad, o sea relleno transparente acumulado sobre el árbol,
               más un bucle JS por frame. En móvil van a la mitad de motas y a
               media cadencia: la nube se lee igual y el bucle cuesta la mitad. */}
-          {conPolvo && (
+          {nivel >= 2 && (
             <MicroDust
               reducedMotion={reducedMotion}
               count={isMobile ? PRESUPUESTO_MOVIL.motas : 1100}
               everyNthFrame={isMobile ? PRESUPUESTO_MOVIL.cadencia : 1}
             />
           )}
-          {conPolvo && !reducedMotion && (
+          {nivel >= 2 && !reducedMotion && (
             <Sparkles
               count={isMobile ? PRESUPUESTO_MOVIL.sparkles : 70}
               scale={[7, 9, 4]}
@@ -937,7 +950,7 @@ export default function TreeBackground({ reducedMotion }) {
             desenfocar, recomponer) que se pagan enteras cada frame. La viñeta
             ya existe en DOM, así que fuera del nivel completo solo se pierde el
             halo. */}
-        {conBloom && (
+        {nivel >= 2 && (
           <Suspense fallback={null}>
             <PostFX scrollRef={scrollRef} isMobile={isMobile} />
           </Suspense>
