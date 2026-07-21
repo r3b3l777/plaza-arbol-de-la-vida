@@ -83,7 +83,7 @@ function MicroDust({ reducedMotion, count = 1100, everyNthFrame = 1 }) {
   )
 }
 
-function LogoTree({ reducedMotion, scrollRef, pointerRef, isMobile }) {
+function LogoTree({ reducedMotion, scrollRef, pointerRef, isMobile, onGeometryReady }) {
   const group = useRef()
   const inner = useRef()
   const { scene } = useGLTF(MODEL)
@@ -168,19 +168,26 @@ function LogoTree({ reducedMotion, scrollRef, pointerRef, isMobile }) {
     if (!jobs.length) return
     let vivo = true
     let pendientes = jobs.length
+    let resuelto = false
 
-    // Plan B: si el worker no arranca o falla, la subdivisión se hace en el
-    // hilo principal pero en un hueco libre (`requestIdleCallback`), no durante
-    // el render. Cuesta ~700 ms de CPU en un teléfono, así que no es gratis —
-    // pero la alternativa es dejar el árbol facetado PARA SIEMPRE, que se ve
-    // como si el modelo no hubiera cargado bien.
-    // `three-subdivide` se importa aquí dentro a propósito: así solo se
-    // descarga si de verdad hace falta y no engorda el chunk del 3D.
+    const terminado = () => {
+      if (resuelto) return
+      resuelto = true
+      clearTimeout(plazo)
+      onGeometryReady()
+    }
+
+    // Plan B: la subdivisión en el hilo principal, dentro de un hueco libre.
+    // Cuesta ~700 ms de CPU en un teléfono, así que no es gratis — pero la
+    // alternativa es un árbol facetado PARA SIEMPRE, que es exactamente el
+    // aspecto de "el modelo no cargó bien".
+    // `three-subdivide` se importa aquí dentro a propósito: solo se descarga si
+    // de verdad hace falta y no engorda el chunk del 3D.
     const planB = () => {
-      if (!vivo) return
+      if (!vivo || resuelto) return
       const correr = async () => {
         const { LoopSubdivision } = await import('three-subdivide')
-        if (!vivo) return
+        if (!vivo || resuelto) return
         for (const { mesh, position, index } of jobs) {
           const g = new THREE.BufferGeometry()
           g.setAttribute('position', new THREE.BufferAttribute(position, 3))
@@ -193,11 +200,20 @@ function LogoTree({ reducedMotion, scrollRef, pointerRef, isMobile }) {
           mesh.geometry = out
           anterior.dispose()
         }
+        terminado()
       }
       const ric = window.requestIdleCallback
-      if (ric) ric(correr, { timeout: 3000 })
-      else setTimeout(correr, 300)
+      if (ric) ric(correr, { timeout: 1500 })
+      else setTimeout(correr, 200)
     }
+
+    // PLAZO, no detección de errores. Un worker puede fallar de muchas maneras
+    // y varias son SILENCIOSAS: `new Worker()` no lanza si el script no carga,
+    // y `onerror` no siempre llega (se comprobó en un iPhone real — el árbol se
+    // quedó facetado con `onerror` puesto). Así que no se intenta averiguar por
+    // qué falla: si en 1,2 s no ha entregado la malla, se hace por el otro
+    // camino. Lo único que importa es que el árbol acabe fino, siempre.
+    const plazo = setTimeout(planB, 1200)
 
     let worker
     try {
@@ -205,19 +221,13 @@ function LogoTree({ reducedMotion, scrollRef, pointerRef, isMobile }) {
         type: 'module',
       })
     } catch {
+      clearTimeout(plazo)
       planB()
-      return
+      return () => { vivo = false }
     }
-    // Un worker que no carga (MIME, CSP, Safari viejo sin workers de módulo) NO
-    // lanza en el `new`: avisa por `onerror` más tarde. Sin esto el fallo era
-    // silencioso y el árbol se quedaba basto sin que nada lo delatara.
-    worker.onerror = () => {
-      if (!vivo || pendientes === 0) return
-      worker.terminate()
-      planB()
-    }
+    worker.onerror = () => { if (vivo) planB() }
     worker.onmessage = (e) => {
-      if (!vivo) return
+      if (!vivo || resuelto) return
       const { id, position, normal } = e.data
       const g = new THREE.BufferGeometry()
       g.setAttribute('position', new THREE.BufferAttribute(position, 3))
@@ -226,20 +236,24 @@ function LogoTree({ reducedMotion, scrollRef, pointerRef, isMobile }) {
       const anterior = mesh.geometry
       mesh.geometry = g
       anterior.dispose()
-      if (--pendientes === 0) worker.terminate()
+      if (--pendientes === 0) {
+        worker.terminate()
+        terminado()
+      }
     }
     // SIN lista de transferibles: si se cedieran los búferes, quedarían
-    // `detached` y el plan B se quedaría sin datos con los que trabajar cuando
-    // el worker falle. Copiarlos cuesta ~120 KB — los arrays pesados (2.4 MB)
-    // son los de VUELTA, y esos sí viajan transferidos desde el worker.
+    // `detached` y el plan B se quedaría sin datos con los que trabajar.
+    // Copiarlos cuesta ~120 KB — los arrays pesados (2.4 MB) son los de VUELTA,
+    // y esos sí viajan transferidos desde el worker.
     jobs.forEach((j, id) => {
       worker.postMessage({ id, position: j.position, index: j.index })
     })
     return () => {
       vivo = false
+      clearTimeout(plazo)
       worker.terminate()
     }
-  }, [jobs])
+  }, [jobs, onGeometryReady])
 
   // Encuadre. En escritorio se conserva el tamaño de siempre (1.488). En
   // pantallas angostas (iPhone en vertical) ese tamaño deja el árbol cortado
@@ -597,10 +611,37 @@ export default function TreeBackground({ reducedMotion }) {
   // re-renderizaría el componente, y ese re-render es justo lo que hace
   // explotar a postprocessing (ver PostFX). Además así el fade no cuesta ni
   // un render de React.
+  // El canvas NO aparece hasta que la malla es la fina. Se comprobó en un
+  // iPhone real que mostrar antes la malla base se ve MAL: facetas triangulares
+  // enormes en el zoom cercano, que es justo lo que se leía como "el modelo no
+  // cargó bien". Vale más esperar ~1 s con el telón de marca —que ya pinta el
+  // color y los degradados— y entrar con el árbol correcto.
   const shellRef = useRef(null)
-  const onReady = useCallback(() => {
-    if (shellRef.current) shellRef.current.style.opacity = '1'
+  const pintado = useRef(false)
+  const afinado = useRef(false)
+  const mostrar = useCallback(() => {
+    if (pintado.current && afinado.current && shellRef.current) {
+      shellRef.current.style.opacity = '1'
+    }
   }, [])
+  const onReady = useCallback(() => {
+    pintado.current = true
+    mostrar()
+  }, [mostrar])
+  const onGeometryReady = useCallback(() => {
+    afinado.current = true
+    mostrar()
+  }, [mostrar])
+  // Red de seguridad: si la malla fina no llega por lo que sea, el árbol se
+  // enseña igual. Un árbol basto es peor que uno fino, pero infinitamente mejor
+  // que un fondo vacío para siempre.
+  useEffect(() => {
+    const t = setTimeout(() => {
+      afinado.current = true
+      mostrar()
+    }, 4000)
+    return () => clearTimeout(t)
+  }, [mostrar])
 
   return (
     <div
@@ -654,7 +695,7 @@ export default function TreeBackground({ reducedMotion }) {
 
         <Suspense fallback={null}>
           <Float speed={reducedMotion ? 0 : 0.7} rotationIntensity={0} floatIntensity={reducedMotion ? 0 : 0.15}>
-            <LogoTree reducedMotion={reducedMotion} scrollRef={scrollRef} pointerRef={pointerRef} isMobile={isMobile} />
+            <LogoTree reducedMotion={reducedMotion} scrollRef={scrollRef} pointerRef={pointerRef} isMobile={isMobile} onGeometryReady={onGeometryReady} />
           </Float>
           {/* Micro-polvo también en móvil, con menos motas y a media cadencia */}
           <ReadySignal onReady={onReady} />
