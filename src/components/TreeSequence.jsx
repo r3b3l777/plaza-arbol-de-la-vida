@@ -40,6 +40,7 @@ export default function TreeSequence({ reducedMotion }) {
       canvas.width = Math.round(window.innerWidth * dpr)
       canvas.height = Math.round(window.innerHeight * dpr)
       actual = -99 // fuerza redibujado
+      pedirDibujo()
     }
 
     // Encaje tipo `object-fit: cover`, calculado a mano porque drawImage no lo
@@ -56,12 +57,33 @@ export default function TreeSequence({ reducedMotion }) {
     // Dibujando el fotograma actual y encima el siguiente con la opacidad de la
     // fracción, el movimiento se vuelve continuo sin añadir ni un byte. Son dos
     // drawImage por frame: sigue siendo copiar mapas de bits.
-    const dibujar = () => {
-      raf = 0
-      const f = Math.min(N - 1, Math.max(0, progreso * (N - 1)))
-      // Se redibuja solo si el avance es apreciable (1/6 de fotograma): evita
-      // repintar por micro-movimientos del scroll.
-      if (Math.abs(f - actual) < 0.16) return
+    // Bucle CONTINUO con suavizado, igual que hacía la versión 3D.
+    //
+    // Antes esto se redibujaba solo al recibir un evento de scroll, y en iOS
+    // esos eventos llegan a golpes durante el desplazamiento con inercia: el
+    // fondo avanzaba a saltos mientras el contenido se movía suave. Eso era el
+    // "se salta fotogramas".
+    //
+    // Ahora un rAF persigue el objetivo con un lerp independiente del framerate
+    // (la misma fórmula que la cámara del 3D), así que la posición se
+    // interpola en CADA frame aunque el scroll no haya avisado. Cuando alcanza
+    // el objetivo el bucle se detiene solo: en reposo no gasta nada.
+    let mostrado = 0
+    let ultimo = 0
+    const dibujar = (ahora) => {
+      const dt = Math.min(0.05, (ahora - ultimo) / 1000 || 0.016)
+      ultimo = ahora
+      const objetivo = Math.min(N - 1, Math.max(0, progreso * (N - 1)))
+      const k = 1 - Math.pow(0.0022, dt) // converge igual a 30 y a 120 fps
+      mostrado += (objetivo - mostrado) * k
+      if (Math.abs(objetivo - mostrado) < 0.004) mostrado = objetivo
+      const f = mostrado
+      if (Math.abs(f - actual) < 0.008) {
+        // Ya está donde debe: se para el bucle hasta el próximo scroll.
+        raf = Math.abs(objetivo - mostrado) > 0.004 ? requestAnimationFrame(dibujar) : 0
+        return
+      }
+      raf = requestAnimationFrame(dibujar)
       const i = Math.floor(f)
       const t = f - i
       const a = marcos[i]
@@ -76,7 +98,7 @@ export default function TreeSequence({ reducedMotion }) {
         ctx.globalAlpha = 1
       }
     }
-    const pedirDibujo = () => { if (!raf) raf = requestAnimationFrame(dibujar) }
+    const pedirDibujo = () => { if (!raf) { ultimo = performance.now(); raf = requestAnimationFrame(dibujar) } }
 
     // === progreso del scroll: misma referencia que el 3D (#visita) ===
     let denom = 1
