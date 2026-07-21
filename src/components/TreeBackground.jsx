@@ -248,11 +248,23 @@ function LogoTree({ reducedMotion, scrollRef, pointerRef, isMobile, nivel, onGeo
       : new THREE.MeshPhysicalMaterial({
           color: '#c4cbd6',
           metalness: 0.9,
-          roughness: 0.3, // satinado con un punto más de nitidez de facetas
+          // El teléfono reflejaba DEMASIADO. No es el mismo material viéndose
+          // distinto: es que las dos rutas se iluminan distinto. Escritorio usa
+          // Lightformers art-directed (tiras concretas, colocadas a mano);
+          // móvil usa un HDR de ESTUDIO, que son focos enormes y blancos
+          // rodeando al objeto — sobre metal con clearcoat eso es destello por
+          // todas partes, no reflejo.
+          //
+          // Se corrige con la rugosidad, no bajando el metal: subirla dispersa
+          // el reflejo en vez de apagarlo, así que el árbol sigue leyéndose
+          // metálico pero satinado en lugar de espejo.
+          roughness: isMobile ? 0.42 : 0.3,
           clearcoat: 1.0, // capa cristalina tipo diamante
-          clearcoatRoughness: 0.12,
-          envMapIntensity: 1.45, // recoge lo que aportaban las luces retiradas
-          specularIntensity: 1.0,
+          clearcoatRoughness: isMobile ? 0.22 : 0.12,
+          // Y el mapa de entorno aporta menos, que es de donde viene el brillo
+          // que sobraba (ver también `environmentIntensity` del Environment).
+          envMapIntensity: isMobile ? 1.12 : 1.45,
+          specularIntensity: isMobile ? 0.72 : 1.0,
           specularColor: new THREE.Color('#ffffff'),
           // Sin `sheen`: es una capa BRDF extra que se evalúa en cada píxel y su
           // aporte (un velo dorado tenue) ahora lo dan el color y las luces.
@@ -317,7 +329,7 @@ function LogoTree({ reducedMotion, scrollRef, pointerRef, isMobile, nivel, onGeo
       oro: new THREE.Color('#e6bd7c'), // remate dorado del final
       jobs,
     }
-  }, [scene, nivel])
+  }, [scene, nivel, isMobile])
 
   // Relevo de la malla subdividida, calculada en `src/lib/subdivide.worker.js`.
   // El encuadre (`aspect`, `baseScale`) se mide sobre la malla BASE y no se
@@ -504,10 +516,12 @@ function LogoTree({ reducedMotion, scrollRef, pointerRef, isMobile, nivel, onGeo
     // una pieza de oro macizo plano.
     mat.color.copy(peltre).lerp(oro, reveal * 0.58)
     mat.emissive.setRGB(0.93, 0.74, 0.4).multiplyScalar(reveal * 0.06)
+    // OJO: esto reescribe cada frame el valor del material, así que la base de
+    // móvil tiene que repetirse aquí o se pierde.
     // En móvil el entorno es un HDR de estudio, mucho más luminoso que los
     // Lightformers de escritorio: si además se sube en el remate, el reflejo
     // blanco se come el oro. Ahí se BAJA para que manden las luces de color.
-    mat.envMapIntensity = 1.45 + reveal * (isMobile ? -0.55 : 0.3)
+    mat.envMapIntensity = isMobile ? 1.12 - reveal * 0.42 : 1.45 + reveal * 0.3
 
     // Respiración de escala, más profunda dentro del árbol
     const breathe = 1 + live * Math.sin(t * 0.6) * (0.012 + 0.016 * gem * (1 - reveal))
@@ -968,7 +982,7 @@ export default function TreeBackground({ reducedMotion }) {
             // raw.githack.com (1.7 MB, CDN de terceros con límite de tasa), así
             // que en el teléfono el árbol se quedaba mate hasta que llegara —o
             // para siempre si fallaba.
-            <Environment files="/hdr/studio-small.hdr" environmentIntensity={1.2} />
+            <Environment files="/hdr/studio-small.hdr" environmentIntensity={0.82} />
           ) : (
             <Environment resolution={128} environmentIntensity={1.0}>
               <color attach="background" args={['#0b0e12']} />
