@@ -1,6 +1,7 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { Environment, Float, Lightformer, Sparkles, useGLTF } from '@react-three/drei'
+import { EffectComposer, Bloom, Vignette } from '@react-three/postprocessing'
 import * as THREE from 'three'
 
 /**
@@ -14,11 +15,6 @@ import * as THREE from 'three'
  * la cámara retrocede y el LOGO se FORMA de frente y se queda ahí (vivo, no
  * congelado). Todo se comparte vía `scrollRef`.
  */
-// El post-proceso (bloom) vive en su propio chunk y SOLO se descarga en el
-// nivel de calidad completo. `postprocessing` + su envoltorio de react-three
-// son decenas de KB que el móvil no llegaba a usar nunca y aun así bajaba.
-const PostFX = lazy(() => import('./PostFX'))
-
 const MODEL = '/models/arbol-logo.glb'
 
 /**
@@ -484,6 +480,62 @@ function ReadySignal({ onReady }) {
   return null
 }
 
+// Anima el post-procesado con la profundidad del zoom: más bloom y aberración
+// cromática cuando el zoom es microscópico → sensación de lente de cine / gema.
+// Solo modula el bloom con la profundidad (glow contenido). Sin aberración
+// cromática dinámica → nada de franjas RGB.
+function FXDriver({ scrollRef, bloomRef, isMobile }) {
+  useFrame(() => {
+    const { gem, reveal } = phases(scrollRef.current)
+    // + el empujón del remate dorado al formarse el logo (contenido en móvil,
+    // donde el HDR ya aporta mucha luz y el bloom lo llevaría a blanco)
+    if (bloomRef.current) {
+      bloomRef.current.intensity = 0.24 + gem * 0.28 + reveal * (isMobile ? 0.05 : 0.12)
+    }
+  })
+  return null
+}
+
+/**
+ * Post-procesado: bloom limpio (glow de joyería). Sin aberración cromática.
+ * También en móvil —sin él el árbol se veía plano frente a Chrome—, pero sin
+ * multisampling y con la viñeta que ya está en DOM.
+ *
+ * Va MEMOIZADO a propósito. `@react-three/postprocessing` calcula los args de
+ * cada efecto con `useMemo(..., [JSON.stringify(props)])`, y en React 19 `ref`
+ * viaja como una prop más. En el primer render `bloomRef.current` es null y no
+ * pasa nada, pero en CUALQUIER re-render posterior ese stringify se encuentra
+ * el BloomEffect ya construido, que es una estructura circular, y lanza
+ * "Converting circular structure to JSON" — una excepción no capturada que
+ * tumba todo el árbol de React (la página se queda en blanco).
+ *
+ * Pasaba de verdad: bastaba con cambiar de pestaña y volver, porque
+ * `setVisible` re-renderiza este componente. Al aislar los efectos aquí con
+ * props estables (tres refs y un booleano), React se salta el re-render y el
+ * stringify no vuelve a ejecutarse nunca.
+ */
+const PostFX = memo(function PostFX({ bloomRef, scrollRef, isMobile }) {
+  return (
+    <>
+      <EffectComposer disableNormalPass multisampling={isMobile ? 0 : 4}>
+        {/* En móvil el bloom se calcula a la mitad de resolución: es un
+            desenfoque, no tiene detalle que perder, y ahorra la mayor parte
+            de su costo de relleno. */}
+        <Bloom
+          ref={bloomRef}
+          mipmapBlur
+          intensity={0.28}
+          luminanceThreshold={0.8}
+          luminanceSmoothing={0.2}
+          radius={0.62}
+          resolutionScale={isMobile ? 0.5 : 1}
+        />
+        <Vignette eskil={false} offset={0.26} darkness={0.74} />
+      </EffectComposer>
+      <FXDriver scrollRef={scrollRef} bloomRef={bloomRef} isMobile={isMobile} />
+    </>
+  )
+})
 
 export default function TreeBackground({ reducedMotion }) {
   const [isMobile] = useState(
@@ -610,6 +662,7 @@ export default function TreeBackground({ reducedMotion }) {
     }
   }, [reducedMotion, isMobile])
 
+  const bloomRef = useRef()
   const frameloop = reducedMotion || !visible ? 'demand' : 'always'
 
   // Fade del telón estático al 3D. El canvas pinta el MISMO color de fondo
@@ -750,11 +803,7 @@ export default function TreeBackground({ reducedMotion }) {
             desenfocar, recomponer) que se pagan enteras cada frame. La viñeta
             ya existe en DOM, así que fuera del nivel completo solo se pierde el
             halo. */}
-        {nivel >= 2 && (
-          <Suspense fallback={null}>
-            <PostFX scrollRef={scrollRef} isMobile={isMobile} />
-          </Suspense>
-        )}
+        {nivel >= 2 && <PostFX bloomRef={bloomRef} scrollRef={scrollRef} isMobile={isMobile} />}
       </Canvas>
 
       {/* Realce en DOM: brillo cálido + viñeta para legibilidad del contenido */}
