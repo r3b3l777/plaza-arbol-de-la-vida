@@ -19,15 +19,22 @@ import * as THREE from 'three'
 const MODEL = '/models/arbol-logo.glb'
 
 // Cadencia de frames del 3D (ver el "pacer" al final del archivo).
-// El árbol se mueve lentísimo —los senos que lo animan van a 0.2–0.6 rad/s— así
-// que pintarlo 60 veces por segundo no aporta nada a la vista y sí funde la GPU
-// del teléfono, que es de donde sale el scroll pegajoso.
 // `0` = sin límite (cada rAF, el comportamiento normal de r3f).
-const FPS_ACTIVO = { movil: 34, escritorio: 0 }
-// Sin scroll ni cursor: se baja aún más. A este ritmo el movimiento sigue
-// leyéndose como continuo (avanza ~0.02 rad por frame) pero deja de calentar el
-// aparato, y un iPhone caliente es un iPhone con throttling.
-const FPS_QUIETO = { movil: 15, escritorio: 30 }
+//
+// MIENTRAS EL USUARIO INTERACTÚA NO SE LIMITA, TAMPOCO EN MÓVIL. Se probó
+// capar a 34 fps en el teléfono con la idea de que "el árbol se mueve tan
+// despacio que no se nota"; se nota, y mucho:
+//   1. El árbol es el FONDO de una página que Lenis desplaza a 60 fps. Con el
+//      fondo a 30 y el contenido a 60 el desfase se lee como trabazón — el
+//      problema es la DIFERENCIA de cadencia, no la cadencia en sí.
+//   2. El recorrido de cámara lee `scrollRef` solo cuando pinta, así que con
+//      cap la cámara va hasta 33 ms por detrás del dedo.
+// El ahorro de GPU no compensa: se percibe peor que el problema que resolvía.
+const FPS_ACTIVO = { movil: 0, escritorio: 0 }
+// EN REPOSO sí se frena: sin scroll ni cursor no hay con qué comparar la
+// cadencia, así que 30 fps es invisible y evita tener el teléfono calentándose
+// para nada (un iPhone caliente es un iPhone con throttling).
+const FPS_QUIETO = { movil: 30, escritorio: 30 }
 const MS_QUIETO = 2500 // silencio de scroll/cursor que cuenta como "quieto"
 
 // Progreso → factores del recorrido. `gem` es la campana del zoom profundo
@@ -555,6 +562,12 @@ export default function TreeBackground({ reducedMotion }) {
     // el árbol pegaría un salto. Por eso `t0` se recoloca en función del tiempo
     // ya acumulado, y el rato con la pestaña oculta simplemente no cuenta.
     const t0 = performance.now() - transcurridoRef.current * 1000
+    // Arrancar SIEMPRE en modo activo. Si no se toca, `activityRef` vale 0 y la
+    // comparación `now - 0 > 2500` es cierta desde el primer frame: el árbol
+    // nacía frenado y se quedaba así hasta el primer scroll — justo durante la
+    // intro y la aparición, que es cuando peor se ve. Al volver de otra pestaña
+    // vale lo mismo: si el usuario acaba de regresar, está activo.
+    activityRef.current = performance.now()
     let raf = 0
     let ultimo = -Infinity
     const loop = (now) => {
