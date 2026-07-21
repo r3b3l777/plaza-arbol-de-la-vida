@@ -217,19 +217,44 @@ body {
  * el radio; sobre una nav fija durante el scroll es de lo más caro que hay en
  * iOS. A 12-14 px el vidrio se sigue leyendo igual en una pantalla de teléfono.
  */
+/*
+ * MÓVIL: sin `backdrop-filter`, no con radio menor.
+ *
+ * Recortar el radio no evita el gasto de fondo: el navegador tiene que aislar
+ * lo que hay DETRÁS del elemento, filtrarlo y recomponerlo, y aquí detrás hay
+ * un canvas WebGL animado a pantalla completa. Sobre una nav FIJA eso se repite
+ * en cada frame del scroll — es de lo más caro que existe en iOS.
+ *
+ * Se sustituye por un fondo semiopaco un poco más sólido. En una pantalla de
+ * teléfono, con el árbol moviéndose detrás, la diferencia entre vidrio
+ * esmerilado y color translúcido no se aprecia; el ahorro sí.
+ */
 @media (max-width: 767px) {
   .nav-liquid {
-    backdrop-filter: blur(14px) saturate(1.7);
-    -webkit-backdrop-filter: blur(14px) saturate(1.7);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    background: linear-gradient(to bottom, rgba(24, 29, 37, 0.90), rgba(16, 20, 26, 0.84));
   }
   .menu-liquid {
-    backdrop-filter: blur(14px) saturate(1.7);
-    -webkit-backdrop-filter: blur(14px) saturate(1.7);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    background: linear-gradient(to bottom, rgba(20, 24, 31, 0.95), rgba(15, 19, 24, 0.93));
   }
   .btn-liquid,
   .btn-liquid-solid {
-    backdrop-filter: blur(10px) saturate(1.8);
-    -webkit-backdrop-filter: blur(10px) saturate(1.8);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+  .btn-liquid { background-color: rgba(56, 62, 72, 0.86); }
+  .btn-liquid-solid { background-color: rgba(32, 37, 45, 0.94); }
+  .panel-dark {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    background-color: color-mix(in srgb, var(--color-ink) 82%, transparent);
+  }
+  .sound-toggle, .cta-avail {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
   }
 }
 @media (prefers-reduced-transparency: reduce) {
@@ -259,12 +284,43 @@ body {
 .cinematic-overlay::after {
   content: '';
   position: absolute;
-  inset: -50%;
+  /* `inset: 0`, no `-50%`. El elemento es `fixed` y el grano es un patrón que
+     se repite, así que desbordar media pantalla por cada lado solo servía para
+     mezclar CUATRO VECES el área necesaria, cada frame. */
+  inset: 0;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
   opacity: 0.05;
   mix-blend-mode: overlay;
 }
 @media (prefers-reduced-transparency: reduce) {
+  .cinematic-overlay::after { display: none; }
+}
+
+/*
+ * MÓVIL: sin mix-blend-mode.
+ *
+ * Un blend mode no se puede componer directamente: obliga al navegador a
+ * renderizar TODO lo que hay debajo en un búfer aparte, mezclarlo y volver a
+ * pintarlo. Y aquí debajo hay un canvas WebGL animado a pantalla completa y una
+ * página haciendo scroll, así que ese trabajo se repite en CADA frame. El coste
+ * va con el área de pantalla, no con lo complejo que sea el 3D — por eso
+ * recortar el árbol a la mitad apenas cambiaba nada.
+ *
+ * La viñeta se consigue igual con un degradado negro normal (el fondo ya es
+ * oscuro, así que multiplicar y superponer dan casi lo mismo). El grano de
+ * película, a 5 % de opacidad, no se distingue en una pantalla de teléfono.
+ */
+@media (max-width: 767px) {
+  .cinematic-overlay {
+    mix-blend-mode: normal;
+    background:
+      radial-gradient(
+        ellipse 120% 90% at 50% 42%,
+        transparent 55%,
+        rgba(0, 0, 0, 0.20) 82%,
+        rgba(0, 0, 0, 0.38) 100%
+      );
+  }
   .cinematic-overlay::after { display: none; }
 }
 
@@ -606,9 +662,28 @@ html.lenis body {
   background: linear-gradient(100deg, rgba(232,194,122,0.16), rgba(232,194,122,0.04));
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
-  box-shadow: 0 0 24px -8px rgba(232, 194, 122, 0.5);
-  animation: cta-avail-glow 2.6s ease-in-out infinite;
+  position: relative;
   transition: border-color 0.3s ease, background 0.3s ease, transform 0.3s ease;
+}
+/*
+ * El resplandor late con OPACIDAD sobre un pseudo-elemento, no interpolando
+ * `box-shadow`. Animar la sombra obliga a RE-PINTAR en cada frame, y este CTA
+ * vive en el hero, encima del canvas 3D. Con la sombra fija en su propia capa y
+ * solo la opacidad animándose, el navegador la pinta una vez y luego solo la
+ * compone: trabajo de GPU en vez de repintado.
+ * La envolvente de brillo se conserva: 0.8 × 0.5625 = 0.45 abajo, 0.8 arriba.
+ */
+.cta-avail::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow: 0 0 34px -6px rgba(232, 194, 122, 0.8);
+  opacity: 0.5625;
+  animation: cta-avail-glow 2.6s ease-in-out infinite;
+  will-change: opacity;
 }
 .cta-avail:hover {
   border-color: rgba(240, 214, 154, 0.95);
@@ -616,8 +691,8 @@ html.lenis body {
   transform: translateY(-1px);
 }
 @keyframes cta-avail-glow {
-  0%, 100% { box-shadow: 0 0 22px -9px rgba(232, 194, 122, 0.45); }
-  50% { box-shadow: 0 0 34px -6px rgba(232, 194, 122, 0.8); }
+  0%, 100% { opacity: 0.5625; }
+  50% { opacity: 1; }
 }
 .cta-avail-dot {
   position: relative;
@@ -633,6 +708,6 @@ html.lenis body {
   100% { box-shadow: 0 0 0 10px rgba(242, 215, 154, 0); }
 }
 @media (prefers-reduced-motion: reduce) {
-  .cta-avail { animation: none; }
+  .cta-avail::before { animation: none; opacity: 0.625; }
   .cta-avail-dot { animation: none; }
 }

@@ -17,6 +17,31 @@ import * as THREE from 'three'
  */
 const MODEL = '/models/arbol-logo.glb'
 
+/**
+ * NIVEL DE CALIDAD DEL 3D.
+ *
+ * El coste de esta escena está en el sombreado POR PÍXEL: el árbol cubre la
+ * pantalla entera, así que cada luz, cada capa del material y cada pasada de
+ * post-proceso se pagan multiplicadas por el número de píxeles. Las palancas,
+ * de más a menos brutal: resolución (dpr), post-proceso, clearcoat, nº de luces.
+ *
+ * Se puede forzar con `?q=0`, `?q=1` o `?q=2` para comparar los tres en el
+ * mismo teléfono sin recompilar nada.
+ *
+ *   0 · mínimo   dpr 1     · material estándar · 3 luces · sin bloom ni polvo
+ *   1 · medio    dpr 1.3   · clearcoat         · 5 luces · sin bloom ni polvo
+ *   2 · completo dpr 1.85  · clearcoat         · 7 luces · bloom + polvo
+ *
+ * Por defecto: móvil → 1, escritorio → 2.
+ */
+function nivelCalidad(isMobile) {
+  if (typeof window !== 'undefined') {
+    const q = new URLSearchParams(window.location.search).get('q')
+    if (q !== null && /^[012]$/.test(q)) return Number(q)
+  }
+  return isMobile ? 1 : 2
+}
+
 // Progreso → factores del recorrido. `gem` es la campana del zoom profundo
 // (0 arriba, 1 en el punto microscópico, 0 al formarse) que dispara el look gema.
 function phases(p) {
@@ -83,7 +108,7 @@ function MicroDust({ reducedMotion, count = 1100, everyNthFrame = 1 }) {
   )
 }
 
-function LogoTree({ reducedMotion, scrollRef, pointerRef, isMobile, onGeometryReady }) {
+function LogoTree({ reducedMotion, scrollRef, pointerRef, isMobile, nivel, onGeometryReady }) {
   const group = useRef()
   const inner = useRef()
   const { scene } = useGLTF(MODEL)
@@ -96,18 +121,29 @@ function LogoTree({ reducedMotion, scrollRef, pointerRef, isMobile, onGeometryRe
     // se evitan iridescence/anisotropy (extensiones KHR que Safari renderiza
     // distinto). El brillo de gema viene de un clearcoat cristalino + un
     // realce especular fino — sobrio, sin exagerar.
-    const mat = new THREE.MeshPhysicalMaterial({
-      color: '#c4cbd6',
-      metalness: 0.9,
-      roughness: 0.3, // satinado con un punto más de nitidez de facetas
-      clearcoat: 1.0, // capa cristalina tipo diamante
-      clearcoatRoughness: 0.12,
-      envMapIntensity: 1.45, // recoge lo que aportaban las luces retiradas
-      specularIntensity: 1.0,
-      specularColor: new THREE.Color('#ffffff'),
-      // Sin `sheen`: es una capa BRDF extra que se evalúa en cada píxel y su
-      // aporte (un velo dorado tenue) ahora lo dan el color y las luces.
-    })
+    // Nivel 0: material estándar. El clearcoat es una segunda capa BRDF
+    // completa evaluada por píxel Y por luz — en la práctica duplica el coste
+    // del sombreado. El aspecto metálico no depende de él sino del metalness
+    // + el mapa de entorno, así que se compensa subiendo el entorno.
+    const mat = nivel === 0
+      ? new THREE.MeshStandardMaterial({
+          color: '#c4cbd6',
+          metalness: 0.9,
+          roughness: 0.28,
+          envMapIntensity: 1.6,
+        })
+      : new THREE.MeshPhysicalMaterial({
+          color: '#c4cbd6',
+          metalness: 0.9,
+          roughness: 0.3, // satinado con un punto más de nitidez de facetas
+          clearcoat: 1.0, // capa cristalina tipo diamante
+          clearcoatRoughness: 0.12,
+          envMapIntensity: 1.45, // recoge lo que aportaban las luces retiradas
+          specularIntensity: 1.0,
+          specularColor: new THREE.Color('#ffffff'),
+          // Sin `sheen`: es una capa BRDF extra que se evalúa en cada píxel y su
+          // aporte (un velo dorado tenue) ahora lo dan el color y las luces.
+        })
     // Subdivisión (Loop) → muchos más polígonos: superficie ultra suave y
     // detallada, clave en el zoom microscópico (sin facetas). Sin ella el árbol
     // se ve POLIGONAL, así que sigue haciéndose — pero YA NO AQUÍ.
@@ -125,16 +161,27 @@ function LogoTree({ reducedMotion, scrollRef, pointerRef, isMobile, onGeometryRe
     s.traverse((o) => {
       if (o.isMesh) {
         const src = o.geometry
-        // Copias propias: los búferes se ceden al worker (transferibles) y no
-        // pueden ser los del GLTF cacheado, que se reutiliza entre montajes.
-        jobs.push({
-          mesh: o,
-          position: new Float32Array(src.attributes.position.array),
-          index: src.index ? new Uint32Array(src.index.array) : null,
-        })
-        const g = src.toNonIndexed()
-        g.computeVertexNormals()
-        o.geometry = g
+        if (nivel === 0) {
+          // Sin subdividir. Y no se ve facetado porque las normales salen de la
+          // malla INDEXADA: computeVertexNormals promedia la normal de las caras
+          // que comparten cada vértice y la superficie se sombrea suave. La
+          // versión facetada es la misma malla con normales PLANAS (una por
+          // cara), que es lo que produce toNonIndexed(). Coste cero.
+          const g = src.clone()
+          g.computeVertexNormals()
+          o.geometry = g
+        } else {
+          // Copias propias: los búferes no pueden ser los del GLTF cacheado,
+          // que se reutiliza entre montajes.
+          jobs.push({
+            mesh: o,
+            position: new Float32Array(src.attributes.position.array),
+            index: src.index ? new Uint32Array(src.index.array) : null,
+          })
+          const g = src.toNonIndexed()
+          g.computeVertexNormals()
+          o.geometry = g
+        }
         o.material = mat
       }
     })
@@ -157,7 +204,7 @@ function LogoTree({ reducedMotion, scrollRef, pointerRef, isMobile, onGeometryRe
       oro: new THREE.Color('#e6bd7c'), // remate dorado del final
       jobs,
     }
-  }, [scene])
+  }, [scene, nivel])
 
   // Relevo de la malla subdividida, calculada en `src/lib/subdivide.worker.js`.
   // El encuadre (`aspect`, `baseScale`) se mide sobre la malla BASE y no se
@@ -165,7 +212,11 @@ function LogoTree({ reducedMotion, scrollRef, pointerRef, isMobile, onGeometryRe
   // 0.38 % en proporción — medido — así que recalcularlo al llegar el relevo
   // solo serviría para provocar un salto visible a cambio de nada.
   useEffect(() => {
-    if (!jobs.length) return
+    // Nivel 0 no subdivide: la malla montada YA es la definitiva.
+    if (!jobs.length) {
+      onGeometryReady()
+      return
+    }
     let vivo = true
     let pendientes = jobs.length
     let resuelto = false
@@ -490,6 +541,7 @@ export default function TreeBackground({ reducedMotion }) {
   const [isMobile] = useState(
     () => typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches
   )
+  const [nivel] = useState(() => nivelCalidad(isMobile))
   const [visible, setVisible] = useState(true)
   useEffect(() => {
     const onVis = () => setVisible(!document.hidden)
@@ -664,7 +716,9 @@ export default function TreeBackground({ reducedMotion }) {
     >
       {/* dpr 1.75 en móvil: se ve nítido y pinta ~23 % menos píxeles que a 2 */}
       <Canvas
-        dpr={[1, isMobile ? 1.75 : 1.85]}
+        // Resolución por nivel. Es la palanca más bruta: el coste va con el
+        // número de píxeles, así que de 1.85 a 1 hay casi 3,5× de diferencia.
+        dpr={[1, [1, 1.3, 1.85][nivel]]}
         camera={{ position: [0, 0.55, 1.75], fov: 42 }}
         gl={{
           antialias: true,
@@ -686,26 +740,34 @@ export default function TreeBackground({ reducedMotion }) {
             Fuera: el spotLight con penumbra (la más cara con diferencia) y dos
             rellenos estáticos; su aporte lo recogen la direccional (ahora key
             de verdad) y el envMap. */}
-        <ambientLight intensity={0.42} />
-        <hemisphereLight args={['#cfe0ff', '#1b2028', 0.6]} />
-        <directionalLight position={[3, 5, 5]} intensity={2.6} color="#fff2df" />
-        <pointLight position={[0, 2, -6]} intensity={16} color="#dfe7f5" />
-        <OrbitingHighlight reducedMotion={reducedMotion} scrollRef={scrollRef} />
-        {!reducedMotion && <LuxuryLights scrollRef={scrollRef} />}
+        {/* Cada luz se evalúa POR PÍXEL sobre un objeto que ocupa toda la
+            pantalla, así que el coste del sombreado es casi lineal con su
+            número. Las tres primeras están siempre; se suben de intensidad en
+            los niveles bajos para que la luz total no se desplome al retirar
+            las otras. El remate dorado NO depende de ellas: sale del color del
+            material. */}
+        <ambientLight intensity={nivel === 0 ? 0.55 : 0.42} />
+        <hemisphereLight args={['#cfe0ff', '#1b2028', nivel === 0 ? 0.8 : 0.6]} />
+        <directionalLight position={[3, 5, 5]} intensity={nivel === 0 ? 3.4 : 2.6} color="#fff2df" />
+        {nivel >= 2 && <pointLight position={[0, 2, -6]} intensity={16} color="#dfe7f5" />}
+        {nivel >= 2 && <OrbitingHighlight reducedMotion={reducedMotion} scrollRef={scrollRef} />}
+        {nivel >= 1 && !reducedMotion && <LuxuryLights scrollRef={scrollRef} />}
 
         <Suspense fallback={null}>
           <Float speed={reducedMotion ? 0 : 0.7} rotationIntensity={0} floatIntensity={reducedMotion ? 0 : 0.15}>
-            <LogoTree reducedMotion={reducedMotion} scrollRef={scrollRef} pointerRef={pointerRef} isMobile={isMobile} onGeometryReady={onGeometryReady} />
+            <LogoTree reducedMotion={reducedMotion} scrollRef={scrollRef} pointerRef={pointerRef} isMobile={isMobile} nivel={nivel} onGeometryReady={onGeometryReady} />
           </Float>
           {/* Micro-polvo también en móvil, con menos motas y a media cadencia */}
           <ReadySignal onReady={onReady} />
-          <MicroDust
-            reducedMotion={reducedMotion}
-            count={isMobile ? 420 : 1100}
-            everyNthFrame={isMobile ? 2 : 1}
-          />
-          {!reducedMotion && (
-            <Sparkles count={isMobile ? 36 : 70} scale={[7, 9, 4]} size={1.4} speed={0.2} color="#dbe3f0" opacity={0.4} />
+          {/* Partículas solo en el nivel completo: son cientos de puntos con
+              mezcla ADITIVA y sin escritura de profundidad, o sea relleno
+              transparente acumulado sobre el árbol — de lo más caro en una GPU
+              móvil — más un bucle JS por frame. */}
+          {nivel >= 2 && (
+            <MicroDust reducedMotion={reducedMotion} count={1100} everyNthFrame={1} />
+          )}
+          {nivel >= 2 && !reducedMotion && (
+            <Sparkles count={70} scale={[7, 9, 4]} size={1.4} speed={0.2} color="#dbe3f0" opacity={0.4} />
           )}
           {isMobile ? (
             // iOS/WebKit (Safari y Chrome iOS) no genera bien el envMap desde una
@@ -728,7 +790,11 @@ export default function TreeBackground({ reducedMotion }) {
           )}
         </Suspense>
 
-        <PostFX bloomRef={bloomRef} scrollRef={scrollRef} isMobile={isMobile} />
+        {/* El bloom son varias pasadas a pantalla completa (reducir,
+            desenfocar, recomponer) que se pagan enteras cada frame. La viñeta
+            ya existe en DOM, así que fuera del nivel completo solo se pierde el
+            halo. */}
+        {nivel >= 2 && <PostFX bloomRef={bloomRef} scrollRef={scrollRef} isMobile={isMobile} />}
       </Canvas>
 
       {/* Realce en DOM: brillo cálido + viñeta para legibilidad del contenido */}

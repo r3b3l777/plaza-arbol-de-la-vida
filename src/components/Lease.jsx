@@ -24,6 +24,11 @@ export default function Lease() {
   const [videoNear, setVideoNear] = useState(false)
   useEffect(() => {
     if (reducedMotion || !shellRef.current) return
+    // MÓVIL: el video no se carga nunca; se queda el póster, que es la misma
+    // imagen. Son 384 KB y un decodificador de vídeo corriendo en bucle detrás
+    // del contenido, para una textura de fondo que en una pantalla de teléfono
+    // apenas se distingue de la foto fija.
+    if (window.matchMedia('(max-width: 767px)').matches) return
     const io = new IntersectionObserver(
       ([e]) => {
         if (e.isIntersecting) {

@@ -41,29 +41,33 @@ function App() {
     const start = () => {
       if (done) return
       done = true
-      // Los assets del 3D se piden A LA VEZ que el chunk de three.js, no
-      // después. Antes iban en serie: hasta que el chunk (≈295 KB gzip) no se
-      // había descargado Y ejecutado, el navegador ni sabía que existían el GLB
-      // y el HDR. En móvil eso son dos viajes de red encadenados de más.
-      // El HDR solo lo usa la ruta móvil (escritorio ilumina con Lightformers),
-      // así que en escritorio no se pide.
-      const urls = ['/models/arbol-logo.glb']
-      if (window.matchMedia('(max-width: 767px)').matches) {
-        urls.push('/hdr/studio-small.hdr')
-      }
-      for (const u of urls) {
-        // Se consume el cuerpo para que la respuesta entre en la caché HTTP y
-        // la petición real del componente la encuentre ya servida.
-        fetch(u).then((r) => r.arrayBuffer()).catch(() => {})
-      }
       setMount3D(true)
     }
+
+    // Los assets del 3D se piden YA, sin esperar a montar nada. Mientras corre
+    // la intro de marca (que son un WebP y CSS, casi nada de red) la conexión
+    // está ociosa: es el hueco perfecto para bajar el GLB y el HDR. Así, cuando
+    // el usuario entra, ya están en la caché HTTP y el componente los encuentra
+    // servidos en vez de empezar a pedirlos.
+    // El HDR solo lo usa la ruta móvil — escritorio ilumina con Lightformers.
+    const assets = ['/models/arbol-logo.glb']
+    if (window.matchMedia('(max-width: 767px)').matches) {
+      assets.push('/hdr/studio-small.hdr')
+    }
+    for (const u of assets) {
+      // Se consume el cuerpo: si no, la respuesta no termina de entrar en caché.
+      // Prioridad baja para no competir con la primera pintura.
+      fetch(u, { priority: 'low' }).then((r) => r.arrayBuffer()).catch(() => {})
+    }
+
     // requestIdleCallback = "cuando el hilo principal esté libre"; el timeout
     // es la red de seguridad para navegadores ocupados (y Safari, que no lo
-    // implementa).
+    // implementa). En Safari la espera fija baja de 800 a 400 ms: los assets ya
+    // van descargándose por su cuenta, así que arrancar antes no le quita ancho
+    // de banda a la primera pintura, solo adelanta la compilación de shaders.
     const ric = window.requestIdleCallback
     const idle = ric ? ric(start, { timeout: 2000 }) : null
-    const timer = setTimeout(start, ric ? 2500 : 800)
+    const timer = setTimeout(start, ric ? 2500 : 400)
     // La intro emite este evento al entrar (con o sin sonido).
     window.addEventListener('plaza:enter', start, { once: true })
     return () => {
