@@ -682,13 +682,15 @@ export default function TreeBackground({ reducedMotion }) {
     // TODA la página, que en un documento largo es un tramo enorme y cae ya en
     // el pie: el logo terminaba de armarse al final del todo. Ahora cada tramo
     // tiene sus propios límites, y los de la formación están atados al titular
-    // "Te esperamos en el corazón de Metepec":
+    // "Te esperamos en el corazón de Metepec". La regla es que cuando el texto
+    // SE VE, el logo dorado ya tiene que estar puesto — no formándose:
     //
-    //   empieza  cuando el bloque asoma por el borde inferior de la pantalla
-    //   termina  cuando ya está arriba, a 0.28 de alto desde el borde superior
+    //   empieza  2.2 alturas de pantalla antes de que llegue el bloque
+    //   termina  justo cuando el bloque toca el borde inferior, o sea en el
+    //            instante en que el texto empieza a asomar
     //
-    // O sea: el dorado arranca justo cuando aparece el texto y se completa
-    // mientras el usuario lo lee, en vez de después de haberlo pasado.
+    // Toda la formación ocurre ANTES, mientras el usuario sube por la sección
+    // anterior. Al llegar al texto ya se encuentra el logo hecho y dorado.
     let inicioFormacion = 1
     let finFormacion = 2
     const read = () => {
@@ -713,8 +715,11 @@ export default function TreeBackground({ reducedMotion }) {
       const ancla = document.getElementById(ANCLA_REVELADO)
       if (ancla) {
         const arriba = ancla.getBoundingClientRect().top + window.scrollY
-        inicioFormacion = Math.max(1, arriba - vh)
-        finFormacion = Math.max(inicioFormacion + 1, arriba - vh * 0.28)
+        // Termina cuando el bloque toca el borde inferior de la pantalla: a
+        // partir de ahí, todo lo que el usuario ve del titular lo ve con el
+        // logo ya formado.
+        finFormacion = Math.max(2, arriba - vh)
+        inicioFormacion = Math.max(1, finFormacion - vh * 1.2)
       } else {
         // Sin ancla (por si el bloque se renombra): el comportamiento anterior.
         const fin = document.documentElement.scrollHeight - vh
