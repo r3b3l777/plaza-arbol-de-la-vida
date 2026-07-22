@@ -716,9 +716,15 @@ export default function TreeBackground({ reducedMotion }) {
 
   // Cursor normalizado (-1..1). Se escucha en la VENTANA porque el canvas es
   // `pointer-events: none` y nunca recibiría eventos por su cuenta.
+  //
+  // SOLO EN ESCRITORIO. En el teléfono el árbol se anima SOLO (respiración,
+  // turntable, deriva) y no sigue ni al dedo ni a la inclinación: seguir al
+  // puntero en móvil disparaba reflejos y destellos con cada toque o arrastre,
+  // justo lo que se pedía evitar. `pointerRef` se queda en {0,0} y el recorrido
+  // usa únicamente su animación autónoma.
   const pointerRef = useRef({ x: 0, y: 0 })
   useEffect(() => {
-    if (reducedMotion) return
+    if (reducedMotion || isMobile) return
     const onMove = (e) => {
       pointerRef.current.x = (e.clientX / window.innerWidth) * 2 - 1
       pointerRef.current.y = (e.clientY / window.innerHeight) * 2 - 1
@@ -733,61 +739,13 @@ export default function TreeBackground({ reducedMotion }) {
       window.removeEventListener('pointermove', onMove)
       document.removeEventListener('pointerleave', onLeave)
     }
-  }, [reducedMotion])
-
-  // Giroscopio: en el teléfono el árbol gira al inclinar el aparato, igual que
-  // sigue al cursor en escritorio (alimenta el MISMO `pointerRef`).
-  // iOS exige pedir permiso DENTRO de un gesto del usuario → se engancha al
-  // primer toque de la página (sirve el botón de la intro). Android no pide
-  // permiso y entra directo.
-  useEffect(() => {
-    if (reducedMotion || !isMobile || typeof DeviceOrientationEvent === 'undefined') return
-    let attached = false
-    // Estado suavizado del sensor. NO se escribe el valor crudo en la cámara:
-    // un teléfono sostenido en la mano nunca está quieto —el pulso son décimas
-    // de grado a varios Hz— y ese temblor entraba tal cual a la rotación del
-    // modelo (±0.32) y al paralaje de cámara (0.13). Como la cámara mueve TODA
-    // la escena, el árbol y las partículas vibraban juntos, todo el rato, y
-    // solo en móvil.
-    //
-    // Una media móvil exponencial con alfa 0.05 sobre eventos de ~60 Hz deja
-    // una constante de tiempo de ~300 ms: el temblor de pulso desaparece por
-    // completo y la inclinación intencionada —que dura mucho más que eso— se
-    // sigue notando entera.
-    let suaveX = 0
-    let suaveY = 0
-    const ALFA = 0.05
-    const onTilt = (e) => {
-      if (e.gamma == null || e.beta == null) return
-      const clamp = (v) => Math.max(-1, Math.min(1, v))
-      // gamma: inclinación izquierda/derecha. beta: adelante/atrás; el punto
-      // neutro son ~60°, el ángulo en que se sostiene el teléfono al leer, para
-      // que el árbol esté de frente en la posición natural y no ya inclinado.
-      suaveX += (clamp(e.gamma / 38) - suaveX) * ALFA
-      suaveY += (clamp((e.beta - 60) / 45) - suaveY) * ALFA
-      pointerRef.current.x = suaveX
-      pointerRef.current.y = suaveY
-    }
-    const attach = () => {
-      if (attached) return
-      attached = true
-      window.addEventListener('deviceorientation', onTilt)
-    }
-    const request = () => {
-      const ask = DeviceOrientationEvent.requestPermission
-      if (typeof ask === 'function') {
-        ask().then((res) => res === 'granted' && attach()).catch(() => {})
-      } else {
-        attach()
-      }
-    }
-    request() // Android / navegadores sin permiso explícito
-    window.addEventListener('pointerdown', request, { once: true }) // iOS
-    return () => {
-      window.removeEventListener('deviceorientation', onTilt)
-      window.removeEventListener('pointerdown', request)
-    }
   }, [reducedMotion, isMobile])
+
+  // En móvil NO hay giroscopio. Antes el árbol giraba al inclinar el aparato
+  // (alimentaba el mismo `pointerRef` que el cursor), pero ese seguimiento hacía
+  // que el metal soltara reflejos y destellos con cada micro-movimiento de la
+  // mano. Se retiró a propósito: en el teléfono el árbol se anima SOLO con su
+  // respiración, turntable y deriva, sin reaccionar a la inclinación ni al toque.
 
   // Se probó limitar a 60 fps con `frameloop="never"` + un bucle propio que
   // llamaba a `advance()` cada 16.7 ms. En papel liberaba la mitad del
